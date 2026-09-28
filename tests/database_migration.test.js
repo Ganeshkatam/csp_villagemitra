@@ -13,7 +13,7 @@ test('Database migrations are well-formed and chronologically ordered', () => {
     assert.ok(fs.existsSync(migrationsDir), 'supabase/migrations directory must exist');
 
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
-    assert.strictEqual(files.length, 11, 'Expected exactly 11 migration files matching schema_migrations');
+    assert.strictEqual(files.length, 12, 'Expected exactly 12 migration files matching schema_migrations');
 
     const expectedSequence = [
         '20260901000000_initial_schema.sql',
@@ -26,7 +26,8 @@ test('Database migrations are well-formed and chronologically ordered', () => {
         '20260928170226_phase_0_security_hardening.sql',
         '20260928170246_phase_0_villages_policy_consolidation.sql',
         '20260928173138_atomic_survey_ingestion_and_idempotency.sql',
-        '20260928173256_add_citizen_feedback_abuse_guards.sql'
+        '20260928173256_add_citizen_feedback_abuse_guards.sql',
+        '20260928180000_server_enforced_anti_abuse_and_survey_hardening.sql'
     ];
 
     assert.deepStrictEqual(files, expectedSequence, 'Migration sequence must match expected chronological baseline');
@@ -101,10 +102,14 @@ test('Consolidated schema.sql contains all 14 required tables and security contr
         'schema.sql must define submit_survey RPC'
     );
 
-    // Verify citizen feedback abuse prevention check constraint
+    // Verify citizen feedback abuse prevention check constraint and server trigger
     assert.ok(
         content.includes('chk_citizen_feedback_message_length'),
         'schema.sql must define chk_citizen_feedback_message_length check constraint'
+    );
+    assert.ok(
+        content.includes('enforce_citizen_feedback_abuse_guards'),
+        'schema.sql must define enforce_citizen_feedback_abuse_guards trigger function'
     );
 
     // Verify zero insecure admin policies

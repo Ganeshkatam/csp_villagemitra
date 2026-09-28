@@ -1,7 +1,8 @@
 /**
  * OfflineSyncManager
  * Durable survey queue management using IndexedDB with localStorage fallback.
- * Provides atomic enqueueing, exponential backoff retries, and dead-letter queue isolation.
+ * Provides atomic enqueueing, exponential backoff retries, dead-letter queue isolation,
+ * stale lock recovery (reloading while syncing), and concurrency protection.
  */
 
 const DB_NAME = 'csp_offline_vault_v1';
@@ -9,8 +10,10 @@ const DB_VERSION = 1;
 const STORE_NAME = 'survey_queue';
 const FALLBACK_STORAGE_KEY = 'csp_offline_surveys_fallback_v1';
 const MAX_RETRIES = 5;
+const STALE_SYNC_TIMEOUT_MS = 60000; // 60 seconds
 
 let dbInstance = null;
+let isSyncInProgress = false;
 
 function hasIndexedDB() {
     return typeof window !== 'undefined' && 'indexedDB' in window;
@@ -80,6 +83,10 @@ export const offlineSyncManager = {
      * @returns {Promise<Object>} The enqueued record
      */
     async enqueue(payload) {
+        if (!payload || typeof payload !== 'object') {
+            throw new Error('Invalid survey payload provided for enqueueing');
+        }
+
         const clientUuid = payload.survey_client_uuid || (
             typeof crypto !== 'undefined' && crypto.randomUUID
                 ? crypto.randomUUID()
@@ -120,10 +127,69 @@ export const offlineSyncManager = {
     },
 
     /**
-     * Retrieves all pending and retryable records.
+     * Retrieves all pending and retryable records, recovering stale syncing records.
      * @returns {Promise<Array>}
      */
     async getPendingRecords() {
+        const now = Date.now();
+        const db = await openDatabase();
+
+        if (db) {
+            return new Promise((resolve) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.getAll();
+                req.onsuccess = () => {
+                    const all = req.result || [];
+                    const pending = [];
+
+                    for (const r of all) {
+                        // Recover stale 'syncing' records (e.g. from browser refresh / process abort)
+                        if (r.status === 'syncing') {
+                            const lastAttempt = r.last_attempt_at ? new Date(r.last_attempt_at).getTime() : 0;
+                            if (now - lastAttempt > STALE_SYNC_TIMEOUT_MS) {
+                                r.status = 'pending';
+                                store.put(r);
+                                pending.push(r);
+                            }
+                        } else if (r.status === 'pending' || r.status === 'failed') {
+                            pending.push(r);
+                        }
+                    }
+                    resolve(pending);
+                };
+                req.onerror = () => resolve([]);
+            });
+        }
+
+        const queue = getFallbackQueue();
+        const pending = [];
+        let modified = false;
+
+        for (const r of queue) {
+            if (r.status === 'syncing') {
+                const lastAttempt = r.last_attempt_at ? new Date(r.last_attempt_at).getTime() : 0;
+                if (now - lastAttempt > STALE_SYNC_TIMEOUT_MS) {
+                    r.status = 'pending';
+                    modified = true;
+                    pending.push(r);
+                }
+            } else if (r.status === 'pending' || r.status === 'failed') {
+                pending.push(r);
+            }
+        }
+
+        if (modified) {
+            saveFallbackQueue(queue);
+        }
+        return pending;
+    },
+
+    /**
+     * Retrieves isolated dead-letter records.
+     * @returns {Promise<Array>}
+     */
+    async getDeadLetterRecords() {
         const db = await openDatabase();
         if (db) {
             return new Promise((resolve) => {
@@ -132,15 +198,49 @@ export const offlineSyncManager = {
                 const req = store.getAll();
                 req.onsuccess = () => {
                     const all = req.result || [];
-                    const pending = all.filter(r => r.status === 'pending' || r.status === 'failed');
-                    resolve(pending);
+                    resolve(all.filter(r => r.status === 'dead_letter'));
                 };
                 req.onerror = () => resolve([]);
             });
         }
 
         const queue = getFallbackQueue();
-        return queue.filter(r => r.status === 'pending' || r.status === 'failed');
+        return queue.filter(r => r.status === 'dead_letter');
+    },
+
+    /**
+     * Resets a dead-letter record back to pending for administrative re-drive.
+     * @param {string} clientUuid
+     */
+    async retryDeadLetterRecord(clientUuid) {
+        const db = await openDatabase();
+        if (db) {
+            return new Promise((resolve) => {
+                const tx = db.transaction(STORE_NAME, 'readwrite');
+                const store = tx.objectStore(STORE_NAME);
+                const req = store.get(clientUuid);
+                req.onsuccess = () => {
+                    if (req.result) {
+                        const rec = req.result;
+                        rec.status = 'pending';
+                        rec.retry_count = 0;
+                        rec.last_error = null;
+                        store.put(rec);
+                    }
+                    resolve();
+                };
+                req.onerror = () => resolve();
+            });
+        }
+
+        const queue = getFallbackQueue();
+        const item = queue.find(q => q.client_uuid === clientUuid);
+        if (item) {
+            item.status = 'pending';
+            item.retry_count = 0;
+            item.last_error = null;
+            saveFallbackQueue(queue);
+        }
     },
 
     /**
@@ -248,33 +348,51 @@ export const offlineSyncManager = {
 
     /**
      * Synchronizes all pending records using uploadSurveyPayload.
+     * Protected by an in-flight concurrency lock.
      * @param {Function} uploadFn - The uploadSurveyPayload function
-     * @returns {Promise<{ successCount: number, failedCount: number, deadLetterCount: number, remainingCount: number }>}
+     * @returns {Promise<{ successCount: number, failedCount: number, deadLetterCount: number, remainingCount: number, skipped: boolean }>}
      */
     async syncAll(uploadFn) {
-        const pending = await this.getPendingRecords();
-        let successCount = 0;
-        let failedCount = 0;
-        let deadLetterCount = 0;
-
-        for (const record of pending) {
-            await this.markSyncing(record.client_uuid);
-            try {
-                await uploadFn(record.payload);
-                await this.removeRecord(record.client_uuid);
-                successCount++;
-            } catch (err) {
-                await this.markFailure(record.client_uuid, err);
-                if ((record.retry_count + 1) >= MAX_RETRIES) {
-                    deadLetterCount++;
-                } else {
-                    failedCount++;
-                }
-            }
+        if (isSyncInProgress) {
+            const count = await this.getPendingCount();
+            return { successCount: 0, failedCount: 0, deadLetterCount: 0, remainingCount: count, skipped: true };
         }
 
-        const remainingCount = await this.getPendingCount();
-        return { successCount, failedCount, deadLetterCount, remainingCount };
+        isSyncInProgress = true;
+        try {
+            const pending = await this.getPendingRecords();
+            let successCount = 0;
+            let failedCount = 0;
+            let deadLetterCount = 0;
+
+            for (const record of pending) {
+                // Check if record payload is malformed
+                if (!record.payload || !record.payload.respondent_code) {
+                    await this.markFailure(record.client_uuid, 'Malformed survey payload: missing respondent_code');
+                    deadLetterCount++;
+                    continue;
+                }
+
+                await this.markSyncing(record.client_uuid);
+                try {
+                    await uploadFn(record.payload);
+                    await this.removeRecord(record.client_uuid);
+                    successCount++;
+                } catch (err) {
+                    await this.markFailure(record.client_uuid, err);
+                    if ((record.retry_count + 1) >= MAX_RETRIES) {
+                        deadLetterCount++;
+                    } else {
+                        failedCount++;
+                    }
+                }
+            }
+
+            const remainingCount = await this.getPendingCount();
+            return { successCount, failedCount, deadLetterCount, remainingCount, skipped: false };
+        } finally {
+            isSyncInProgress = false;
+        }
     }
 };
 

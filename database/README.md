@@ -74,7 +74,8 @@ supabase/migrations/
 ├── 20260928170226_phase_0_security_hardening.sql
 ├── 20260928170246_phase_0_villages_policy_consolidation.sql
 ├── 20260928173138_atomic_survey_ingestion_and_idempotency.sql
-└── 20260928173256_add_citizen_feedback_abuse_guards.sql
+├── 20260928173256_add_citizen_feedback_abuse_guards.sql
+└── 20260928180000_server_enforced_anti_abuse_and_survey_hardening.sql
 ```
 
 The consolidated schema baseline is also maintained at `database/schema.sql` for single-script execution and local test database provisioning. Every migration corresponds 1:1 to an applied migration version in `supabase_migrations.schema_migrations`.
