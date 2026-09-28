@@ -306,6 +306,8 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
     const [showInstitutionForm, setShowInstitutionForm] = useState(false);
     const [showBusinessForm, setShowBusinessForm] = useState(false);
     const [showProfileForm, setShowProfileForm] = useState(false);
+    const [villageSaving, setVillageSaving] = useState(false);
+    const [villageFeedback, setVillageFeedback] = useState(null);
 
     useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -489,21 +491,69 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
     // Save Village Profile
     const handleSaveVillage = async (e) => {
         e.preventDefault();
-        const payload = {
-            id: village.id || DEFAULT_VILLAGE_ID,
-            name: village.name.trim(),
-            gram_panchayat: village.gram_panchayat.trim(),
-            mandal: village.mandal.trim(),
-            district: village.district.trim(),
-            state: village.state.trim(),
-            description: village.description.trim(),
-            source: village.source.trim(),
-            verified_on: village.verified_on
-        };
+        setVillageSaving(true);
+        setVillageFeedback(null);
 
-        const { error } = await supabase.from('villages').upsert(payload);
-        if (error) notify('Error: ' + error.message, 'danger');
-        else notify('Village profile successfully updated.');
+        try {
+            const name = (village.name || '').trim();
+            const gram_panchayat = (village.gram_panchayat || '').trim();
+            const mandal = (village.mandal || '').trim();
+            const district = (village.district || '').trim();
+            const state = (village.state || '').trim();
+            const description = (village.description || '').trim();
+            const source = (village.source || '').trim();
+            const verified_on = village.verified_on || new Date().toISOString().slice(0, 10);
+
+            if (!name || !gram_panchayat || !mandal || !district || !state || !source || !verified_on) {
+                throw new Error('Please fill in all required fields marked with *');
+            }
+
+            const payload = {
+                name,
+                gram_panchayat,
+                mandal,
+                district,
+                state,
+                description,
+                source,
+                verified_on,
+                updated_at: new Date().toISOString()
+            };
+
+            const targetId = village.id || DEFAULT_VILLAGE_ID;
+
+            // Direct update first on existing record
+            const { error: updateError } = await supabase
+                .from('villages')
+                .update(payload)
+                .eq('id', targetId);
+
+            if (updateError) {
+                // If update returned error, attempt upsert
+                const { error: upsertError } = await supabase
+                    .from('villages')
+                    .upsert({ id: targetId, ...payload });
+
+                if (upsertError) {
+                    throw upsertError;
+                }
+            }
+
+            setVillageFeedback({ type: 'success', text: 'Village profile successfully updated.' });
+            notify('Village profile successfully updated.');
+            await loadAllData();
+            setTimeout(() => {
+                setShowProfileForm(false);
+                setVillageFeedback(null);
+            }, 1200);
+        } catch (err) {
+            console.error('Village profile update failed:', err);
+            const msg = err.message || 'Failed to update village profile.';
+            setVillageFeedback({ type: 'danger', text: msg });
+            notify('Error: ' + msg, 'danger');
+        } finally {
+            setVillageSaving(false);
+        }
     };
 
     // Delete item helper
@@ -978,13 +1028,19 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                             </div>
 
                             <form onSubmit={handleSaveVillage}>
+                                {villageFeedback && (
+                                    <div className={`alert alert-${villageFeedback.type}`} style={{ marginBottom: '1.25rem' }}>
+                                        {villageFeedback.text}
+                                    </div>
+                                )}
+
                                 <div className="choice-grid columns-2">
                                     <div className="form-group">
                                         <label className="form-label">Village / Habitation Name *</label>
                                         <input
                                             type="text"
                                             className="form-control"
-                                            value={village.name}
+                                            value={village.name || ''}
                                             onChange={(e) => setVillage({ ...village, name: e.target.value })}
                                             required
                                         />
@@ -994,7 +1050,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                         <input
                                             type="text"
                                             className="form-control"
-                                            value={village.gram_panchayat}
+                                            value={village.gram_panchayat || ''}
                                             onChange={(e) => setVillage({ ...village, gram_panchayat: e.target.value })}
                                             required
                                         />
@@ -1007,7 +1063,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                         <input
                                             type="text"
                                             className="form-control"
-                                            value={village.mandal}
+                                            value={village.mandal || ''}
                                             onChange={(e) => setVillage({ ...village, mandal: e.target.value })}
                                             required
                                         />
@@ -1017,7 +1073,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                         <input
                                             type="text"
                                             className="form-control"
-                                            value={village.district}
+                                            value={village.district || ''}
                                             onChange={(e) => setVillage({ ...village, district: e.target.value })}
                                             required
                                         />
@@ -1027,7 +1083,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                         <input
                                             type="text"
                                             className="form-control"
-                                            value={village.state}
+                                            value={village.state || ''}
                                             onChange={(e) => setVillage({ ...village, state: e.target.value })}
                                             required
                                         />
@@ -1039,7 +1095,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                     <textarea
                                         className="form-control"
                                         rows="3"
-                                        value={village.description}
+                                        value={village.description || ''}
                                         onChange={(e) => setVillage({ ...village, description: e.target.value })}
                                     />
                                 </div>
@@ -1050,7 +1106,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                         <input
                                             type="text"
                                             className="form-control"
-                                            value={village.source}
+                                            value={village.source || ''}
                                             onChange={(e) => setVillage({ ...village, source: e.target.value })}
                                             required
                                         />
@@ -1058,15 +1114,21 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                     <div className="form-group">
                                         <label className="form-label">Verified Date *</label>
                                         <CustomDatePicker
-                                            value={village.verified_on}
+                                            value={village.verified_on || new Date().toISOString().slice(0, 10)}
                                             onChange={(val) => setVillage({ ...village, verified_on: val })}
                                             required
                                         />
                                     </div>
                                 </div>
 
-                                <button type="submit" className="btn btn-primary" style={{ marginTop: '0.5rem' }}>
-                                    Update Village Profile
+                                <button 
+                                    type="submit" 
+                                    className="btn btn-primary" 
+                                    disabled={villageSaving}
+                                    style={{ marginTop: '0.5rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                                >
+                                    {villageSaving && <span className="btn-spinner" aria-hidden="true" />}
+                                    <span>{villageSaving ? 'Updating Village Profile...' : 'Update Village Profile'}</span>
                                 </button>
                             </form>
                         </div>
