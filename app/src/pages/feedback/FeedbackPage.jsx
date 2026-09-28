@@ -54,7 +54,7 @@ export function FeedbackPage() {
             </div>
 
             <div className="container" style={{ paddingBottom: '3.5rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: '2rem', alignItems: 'start' }}>
+                <div className="feedback-grid-layout">
                     <div>
                         <FeedbackForm t={t} />
                     </div>
