@@ -3935,7 +3935,6 @@ textarea.form-control {
 /* Home Page & Bento Hub Utilities */
 .modern-split-hero {
     position: relative;
-    padding: clamp(1.5rem, 2.5vw, 2.75rem) 0;
 }
 
 .badge-dot {
