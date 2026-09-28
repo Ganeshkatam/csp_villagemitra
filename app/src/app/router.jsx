@@ -83,11 +83,18 @@ export const router = createBrowserRouter([
         path: '/admin',
         element: <AdminLayout />,
         children: [
-            { index: true, element: withSuspense(AdminPage) },
+            { 
+                index: true, 
+                element: (
+                    <ProtectedRoute requireAdmin={true}>
+                        {withSuspense(AdminPage)}
+                    </ProtectedRoute>
+                ) 
+            },
             { 
                 path: ':section', 
                 element: (
-                    <ProtectedRoute>
+                    <ProtectedRoute requireAdmin={true}>
                         {withSuspense(AdminPage)}
                     </ProtectedRoute>
                 ) 

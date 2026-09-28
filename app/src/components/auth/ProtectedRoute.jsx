@@ -1,6 +1,7 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAppContext } from '../../app/providers';
+import { authService } from '../../lib/auth';
 import { LoadingState } from '../feedback/LoadingState';
 
 /**
@@ -22,6 +23,10 @@ export function ProtectedRoute({ children, requireAdmin = true }) {
     }
 
     if (!user) {
+        // When on /admin itself, render children so unauthenticated users see the login form
+        if (location.pathname === '/admin') {
+            return children;
+        }
         // Redirect to admin login screen, saving current location for redirect back
         return <Navigate to="/admin" state={{ from: location }} replace />;
     }
@@ -34,7 +39,15 @@ export function ProtectedRoute({ children, requireAdmin = true }) {
                     <p style={{ fontSize: '0.9rem', color: 'var(--color-slate-600)', marginBottom: '1.25rem' }}>
                         Your account ({user.email}) is authenticated, but does not have administrator role authorization to access this management console.
                     </p>
-                    <a href="/admin" className="btn btn-secondary">Return to Admin Console</a>
+                    <button 
+                        type="button" 
+                        className="btn btn-secondary"
+                        onClick={async () => {
+                            await authService.signOut();
+                        }}
+                    >
+                        Sign Out
+                    </button>
                 </div>
             </div>
         );
@@ -44,3 +57,4 @@ export function ProtectedRoute({ children, requireAdmin = true }) {
 }
 
 export default ProtectedRoute;
+

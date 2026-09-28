@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { 
-    ExternalLink, CheckCircle2, UserCheck, ShieldCheck, 
-    FileCheck, Layers, ArrowLeft, Building, HelpCircle, 
-    AlertCircle, FileText, Check, Calendar, Landmark, Printer
+import {
+    ExternalLink, CheckCircle2, UserCheck, ShieldCheck,
+    FileCheck, Layers, ArrowLeft, HelpCircle,
+    AlertCircle, FileText, Check, Landmark, Printer
 } from 'lucide-react';
 import { useAppContext } from '../../app/providers';
 import { schemeService } from '../../features/schemes';
@@ -11,6 +11,8 @@ import { getLocalized } from '../../i18n';
 import { LoadingState } from '../../components/feedback/LoadingState';
 import { ErrorState } from '../../components/feedback/ErrorState';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { sanitizeUrl } from '../../utils/validation';
+
 
 export function SchemeDetailsPage() {
     const { schemeSlug } = useParams();
@@ -45,9 +47,9 @@ export function SchemeDetailsPage() {
     if (error) {
         return (
             <div className="container" style={{ padding: '3.5rem 0' }}>
-                <ErrorState 
-                    message={error} 
-                    onRetry={() => window.location.reload()} 
+                <ErrorState
+                    message={error}
+                    onRetry={() => window.location.reload()}
                 />
             </div>
         );
@@ -71,7 +73,9 @@ export function SchemeDetailsPage() {
 
     const docStr = scheme.documents_required || scheme.documents || '';
     const docs = docStr.split(',').map(d => d.trim()).filter(Boolean);
-    const portalUrl = scheme.official_url ? (scheme.official_url.startsWith('http') ? scheme.official_url : `https://${scheme.official_url}`) : null;
+    const sanitized = sanitizeUrl(scheme.official_url);
+    const portalUrl = sanitized !== '#' ? sanitized : null;
+
 
     return (
         <div>
@@ -85,8 +89,8 @@ export function SchemeDetailsPage() {
                         {scheme.category && (
                             <>
                                 <span>/</span>
-                                <Link 
-                                    to={`/schemes/category/${scheme.category.toLowerCase().replace(/ & /g, '-').replace(/\s+/g, '-')}`} 
+                                <Link
+                                    to={`/schemes/category/${scheme.category.toLowerCase().replace(/ & /g, '-').replace(/\s+/g, '-')}`}
                                     style={{ color: 'inherit' }}
                                 >
                                     {scheme.category}
@@ -138,7 +142,7 @@ export function SchemeDetailsPage() {
                 <div className="detail-page-grid">
                     {/* Main Civic Column */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                        
+
                         {/* 1. Overview */}
                         <div className="civic-card" style={{ padding: '1.75rem' }}>
                             <h2 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-slate-900)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -256,7 +260,7 @@ export function SchemeDetailsPage() {
 
                     {/* Right Sidebar: Gateway & Verification */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                        
+
                         {/* Official Portal Gateway */}
                         <div className="civic-card" style={{ padding: '1.5rem', background: '#ffffff', border: '1.5px solid var(--color-blue-200)' }}>
                             <span className="badge badge-civic" style={{ marginBottom: '0.75rem' }}>Official Citizen Portal</span>

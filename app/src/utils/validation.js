@@ -10,16 +10,27 @@ export function isValidEmail(email) {
 }
 
 export function isValidUrl(url) {
-    if (!url) return false;
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (!trimmed || trimmed.startsWith('//')) return false;
     try {
-        new URL(url);
-        return true;
+        const parsed = new URL(trimmed);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
     } catch {
         return false;
     }
+}
+
+export function sanitizeUrl(url) {
+    if (!url || typeof url !== 'string') return '#';
+    const trimmed = url.trim();
+    if (!trimmed || trimmed.startsWith('//')) return '#';
+    const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    return isValidUrl(candidate) ? candidate : '#';
 }
 
 export function sanitizeText(text) {
     if (typeof text !== 'string') return '';
     return text.trim();
 }
+

@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
-    BarChart3, RefreshCw, Download, AlertCircle, Smartphone,
-    ShieldCheck, Users, PhoneCall, Activity, Layers, Filter,
-    CheckCircle2, X, Eye, ArrowUpRight, HelpCircle, FileText,
-    Briefcase, Calendar, Search, MapPin, Lock
+    RefreshCw, Download, AlertCircle, Smartphone,
+    ShieldCheck, Users, PhoneCall, Activity, Filter,
+    CheckCircle2, X, Eye, FileText,
+    Briefcase, MapPin, Lock
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAppContext } from '../app/providers';
 import { getSurveyAnalyticsSummary } from '../features/survey/api/surveyService';
-import { SEED_RESPONSES, SEED_ANSWERS } from '../lib/surveySeedData';
 import CustomSelect from '../components/CustomSelect';
 
 // Helper component for animated horizontal distribution bars
@@ -31,8 +30,8 @@ function DistributionBar({ label, count, total, colorClass = 'fill-blue', sublab
 export default function DashboardView({ initialTab = 'ALL' } = {}) {
     const { isAdmin } = useAppContext();
     const [summary, setSummary] = useState(null);
-    const [responses, setResponses] = useState(SEED_RESPONSES);
-    const [answers, setAnswers] = useState(SEED_ANSWERS);
+    const [responses, setResponses] = useState([]);
+    const [answers, setAnswers] = useState([]);
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState(null);
 
@@ -58,21 +57,19 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
                     supabase.from('survey_answers').select('*')
                 ]);
 
-                if (rRes.data && rRes.data.length > 0) {
-                    setResponses(rRes.data);
-                }
-                if (aRes.data && aRes.data.length > 0) {
-                    setAnswers(aRes.data);
-                }
+                if (rRes.error) throw rRes.error;
+                if (aRes.error) throw aRes.error;
+
+                setResponses(rRes.data || []);
+                setAnswers(aRes.data || []);
             } else {
                 // Public anonymous user: query secure PostgreSQL aggregated summary
                 const data = await getSurveyAnalyticsSummary(selectedWard);
-                if (data) {
-                    setSummary(data);
-                }
+                setSummary(data || null);
             }
         } catch (err) {
-            console.warn('Survey telemetry notice, using verified baseline dataset:', err);
+            console.error('Failed to load survey analytics:', err);
+            setErrorMsg(err.message || 'Unable to retrieve survey analytics from server. Please try refreshing.');
         } finally {
             setLoading(false);
         }
@@ -90,7 +87,7 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
         if (summary?.locality_distribution) {
             return Object.keys(summary.locality_distribution).sort();
         }
-        return ['Central Bazaar', 'East Weavers Colony', 'North Ward'];
+        return [];
     }, [isAdmin, responses, summary]);
 
     // Surveyors are private field personnel; exposed only to verified administrators
@@ -104,8 +101,8 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
     }, [isAdmin, responses]);
 
     const wardOptions = useMemo(() => {
-        const totalCount = isAdmin 
-            ? responses.length 
+        const totalCount = isAdmin
+            ? responses.length
             : (summary?.total_responses || responses.length);
 
         return [
@@ -175,8 +172,7 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
         if (summary?.question_distributions?.[code]) {
             return summary.question_distributions[code][value] || 0;
         }
-        const fallbackAnswers = SEED_ANSWERS.filter(a => a.question_code === code && a.answer_value === value);
-        return fallbackAnswers.length;
+        return 0;
     };
 
     // Calculate core empirical KPIs
@@ -185,9 +181,9 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
     const smartPct = total > 0 ? Math.round((smartCount / total) * 100) : 0;
 
     // 2. Scheme Document Hurdles (SCH2)
-    const docHurdleCount = getFrequency('SCH2', 'Unknown-Eligibility-Docs') + 
-                           getFrequency('SCH2', 'Repeated-Office-Visits') + 
-                           getFrequency('SCH2', 'Unsure-Official-Link');
+    const docHurdleCount = getFrequency('SCH2', 'Unknown-Eligibility-Docs') +
+        getFrequency('SCH2', 'Repeated-Office-Visits') +
+        getFrequency('SCH2', 'Unsure-Official-Link');
     const docHurdlePct = total > 0 ? Math.round((docHurdleCount / total) * 100) : 0;
 
     // 3. Emergency Contact Gap (CON1_PHC, CON1_Police)
@@ -208,7 +204,7 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
             totalResidents += (parseInt(size, 10) || 0) * count;
         });
     } else {
-        totalResidents = 67;
+        totalResidents = 0;
     }
     const typicalHouseholdSize = total > 0 ? '4 – 5' : '0';
 
@@ -265,28 +261,20 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
             document.body.removeChild(link);
         } else {
             // Aggregated indicator summary for public research export
+            if (!summary?.question_distributions || Object.keys(summary.question_distributions).length === 0) {
+                alert('No aggregated survey data available to export.');
+                return;
+            }
+
             const headers = ['Question Code', 'Indicator Category', 'Count', 'Distribution (%)'];
             const rows = [];
 
-            if (summary?.question_distributions) {
-                Object.entries(summary.question_distributions).forEach(([qCode, dist]) => {
-                    Object.entries(dist).forEach(([val, count]) => {
-                        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                        rows.push([`"${qCode}"`, `"${val}"`, count, `${pct}%`]);
-                    });
+            Object.entries(summary.question_distributions).forEach(([qCode, dist]) => {
+                Object.entries(dist).forEach(([val, count]) => {
+                    const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                    rows.push([`"${qCode}"`, `"${val}"`, count, `${pct}%`]);
                 });
-            } else {
-                const codes = ['TECH1', 'TECH2', 'TECH3', 'SCH1', 'SCH2', 'SCH3', 'SCH4', 'CON1_PHC', 'CON1_Police', 'CON1_Lineman', 'CON1_Panchayat', 'CON2', 'HLTH1', 'INFRA1', 'BIZ1', 'BIZ2', 'EDU1', 'PRIO1', 'D1', 'D2', 'D3', 'D4', 'D5', 'D6'];
-                codes.forEach(c => {
-                    const arr = answers.filter(a => a.question_code === c);
-                    const counts = {};
-                    arr.forEach(a => { counts[a.answer_value] = (counts[a.answer_value] || 0) + 1; });
-                    Object.entries(counts).forEach(([val, count]) => {
-                        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                        rows.push([`"${c}"`, `"${val}"`, count, `${pct}%`]);
-                    });
-                });
-            }
+            });
 
             const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
             const encodedUri = encodeURI(csvContent);
@@ -527,8 +515,15 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
                 </div>
             </div>
 
-            {total === 0 && (
-                <div className="alert alert-warning" style={{ marginBottom: '2rem' }}>
+            {loading && (
+                <div className="alert alert-info" style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <RefreshCw size={16} className="spin-icon" aria-hidden="true" />
+                    <span>Loading survey analytics...</span>
+                </div>
+            )}
+
+            {!loading && total === 0 && !errorMsg && (
+                <div className="alert alert-warning" style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <AlertCircle size={16} aria-hidden="true" />
                     <span>
                         No survey responses match the active filter criteria. Clear the ward or surveyor filters to see aggregate indicators.

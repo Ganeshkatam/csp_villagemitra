@@ -3,17 +3,10 @@ import { Link } from 'react-router-dom';
 import { ExternalLink, CheckCircle2, UserCheck, ShieldCheck, FileCheck, Layers, ArrowRight, FileText, Award } from 'lucide-react';
 import { getLocalized } from '../../../i18n';
 import { generateSlug } from '../api/schemes';
-
-function sanitizeUrl(url) {
-    if (!url || typeof url !== 'string') return '#';
-    const trimmed = url.trim();
-    if (/^https?:\/\//i.test(trimmed)) {
-        return trimmed;
-    }
-    return `https://${trimmed}`;
-}
+import { sanitizeUrl } from '../../../utils/validation';
 
 export function SchemeCard({ scheme, lang, t, variant = 'showcase' }) {
+
     const isTe = lang === 'te';
     const docStr = (isTe && scheme.documents_te) ? scheme.documents_te : (scheme.documents_required || scheme.documents || '');
     const docs = docStr.split(',').map(d => d.trim()).filter(Boolean);
