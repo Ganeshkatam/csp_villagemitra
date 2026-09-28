@@ -1299,7 +1299,7 @@ textarea.form-control {
     background: linear-gradient(135deg, #ffffff 0%, #f0f7ff 45%, #ecfdf5 100%);
     border: 1px solid rgba(203, 213, 225, 0.85);
     border-radius: var(--radius-2xl, 24px);
-    padding: clamp(2rem, 3.5vw, 3.25rem);
+    padding: clamp(2.25rem, 3.5vw, 3rem) clamp(2.5rem, 4.5vw, 4.25rem);
     box-shadow: 0 20px 40px -15px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.9) inset;
     margin-top: clamp(1rem, 2vw, 1.5rem);
     margin-bottom: clamp(3rem, 5vw, 4.5rem);
@@ -1632,7 +1632,7 @@ textarea.form-control {
     font-weight: 500;
     color: var(--color-slate-900);
     outline: none;
-    padding: 0.35rem 0.25rem;
+    padding: 0.35rem 0.85rem 0.35rem 0.25rem;
     letter-spacing: -0.01em;
 }
 
