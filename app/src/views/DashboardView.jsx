@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     RefreshCw, Download, AlertCircle, Smartphone,
     ShieldCheck, Users, PhoneCall, Activity, Filter,
     CheckCircle2, X, Eye, FileText,
-    Briefcase, MapPin, Lock
+    Briefcase, MapPin, Lock, Search
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAppContext } from '../app/providers';
@@ -42,11 +42,7 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
     const [ledgerSearch, setLedgerSearch] = useState('');
     const [inspectedHousehold, setInspectedHousehold] = useState(null);
 
-    useEffect(() => {
-        loadData();
-    }, [isAdmin, selectedWard]);
-
-    async function loadData() {
+    const loadData = useCallback(async () => {
         setLoading(true);
         setErrorMsg(null);
         try {
@@ -73,7 +69,11 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
         } finally {
             setLoading(false);
         }
-    }
+    }, [isAdmin, selectedWard]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
 
     // Extract unique wards
     const availableWards = useMemo(() => {
@@ -193,7 +193,7 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
 
     // 4. Digital Literacy Independence (TECH3)
     const tech3Independent = getFrequency('TECH3', 'Independent');
-    const tech3Pct = total > 0 ? Math.round((tech3Independent / total) * 100) : 0;
+    const _tech3Pct = total > 0 ? Math.round((tech3Independent / total) * 100) : 0;
 
     // 5. Household Size & Total Surveyed Population (D5)
     let totalResidents = 0;
@@ -219,10 +219,10 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
     const sch3ConfusedPct = total > 0 ? Math.round((sch3ConfusedCount / total) * 100) : 0;
 
     const infraRoCount = getFrequency('INFRA1', 'Panchayat-RO-Plant');
-    const infraRoPct = total > 0 ? Math.round((infraRoCount / total) * 100) : 0;
+    const _infraRoPct = total > 0 ? Math.round((infraRoCount / total) * 100) : 0;
 
     const bplCardCount = getFrequency('D6', 'White-BPL-Card');
-    const bplCardPct = total > 0 ? Math.round((bplCardCount / total) * 100) : 0;
+    const _bplCardPct = total > 0 ? Math.round((bplCardCount / total) * 100) : 0;
 
     // CSV Export Engine: Exports raw records for authenticated admins, aggregated indicator distributions for public
     const exportCSV = () => {

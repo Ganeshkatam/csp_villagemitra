@@ -1,8 +1,33 @@
-import { supabase, DEFAULT_VILLAGE_ID } from '../../../lib/supabase';
-import { offlineQueue } from '../../../lib/offlineQueue';
+import { supabase, DEFAULT_VILLAGE_ID } from '../../../lib/supabase.js';
+import { offlineQueue } from '../../../lib/offlineQueue.js';
+
+const FEEDBACK_COOLDOWN_MS = 30000; // 30 seconds
+const LAST_SUBMIT_KEY = 'csp_last_feedback_submission';
 
 export const feedbackService = {
     async submitFeedback(feedbackData) {
+        if (!feedbackData) throw new Error('Feedback data is required.');
+
+        const message = (feedbackData.message || feedbackData.description || '').trim();
+        if (message.length < 10) {
+            throw new Error('Please provide at least 10 characters describing your request or feedback.');
+        }
+        if (message.length > 2000) {
+            throw new Error('Feedback message cannot exceed 2000 characters.');
+        }
+
+        // Anti-abuse rate limiting check
+        if (typeof localStorage !== 'undefined') {
+            const lastSubmit = localStorage.getItem(LAST_SUBMIT_KEY);
+            if (lastSubmit) {
+                const elapsed = Date.now() - parseInt(lastSubmit, 10);
+                if (elapsed < FEEDBACK_COOLDOWN_MS) {
+                    const remainingSec = Math.ceil((FEEDBACK_COOLDOWN_MS - elapsed) / 1000);
+                    throw new Error(`Please wait ${remainingSec} seconds before submitting additional feedback.`);
+                }
+            }
+        }
+
         const currentYear = new Date().getFullYear();
         const randNum = Math.floor(10000 + Math.random() * 90000);
         const refId = `VM-FB-${currentYear}-${randNum}`;
@@ -10,15 +35,18 @@ export const feedbackService = {
         const payload = {
             village_id: feedbackData.village_id || DEFAULT_VILLAGE_ID,
             reference_id: refId,
-            name: feedbackData.name || 'Anonymous Resident',
-            phone: feedbackData.phone || null,
+            name: (feedbackData.name || '').trim() || 'Anonymous Resident',
+            phone: (feedbackData.phone || '').trim() || null,
             feedback_type: feedbackData.category || feedbackData.feedback_type || 'General',
-            message: feedbackData.message || feedbackData.description,
+            message: message,
             status: 'Pending'
         };
 
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
             offlineQueue.enqueue({ type: 'feedback', data: payload });
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(LAST_SUBMIT_KEY, Date.now().toString());
+            }
             return { offline: true, success: true, reference_id: refId };
         }
 
@@ -31,6 +59,9 @@ export const feedbackService = {
                 return { offline: true, success: true, reference_id: refId };
             }
 
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(LAST_SUBMIT_KEY, Date.now().toString());
+            }
             return { success: true, reference_id: refId };
         } catch (err) {
             console.warn('Network error during feedback submit, queuing offline:', err);

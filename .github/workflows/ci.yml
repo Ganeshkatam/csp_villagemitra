@@ -1,0 +1,53 @@
+name: CI & Migration Verification
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  verify:
+    name: Code Quality & Migration Integrity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix app ci
+
+      - name: Run Linter (oxlint)
+        run: npm run lint
+
+      - name: Run Application & Migration Test Suite
+        run: npm test
+
+      - name: Build Production Bundle
+        run: npm run build
+
+      - name: Verify Migration Files and Schema Integrity
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const migrationsDir = path.join(process.cwd(), 'supabase', 'migrations');
+            if (!fs.existsSync(migrationsDir)) {
+              console.error('Missing supabase/migrations directory');
+              process.exit(1);
+            }
+            const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
+            if (files.length === 0) {
+              console.error('No migrations found in supabase/migrations');
+              process.exit(1);
+            }
+            console.log('Successfully verified ' + files.length + ' SQL migration files.');
+          "

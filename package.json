@@ -1,13 +1,14 @@
 {
   "name": "csp-digital-village-portal",
   "private": true,
+  "type": "module",
   "version": "1.0.0",
   "description": "Digital Village Information Portal for Community Service Project (CSP)",
   "scripts": {
     "dev": "npm --prefix app run dev",
     "build": "npm --prefix app run build",
     "lint": "npm --prefix app run lint",
-    "test": "npm --prefix app test",
+    "test": "npm --prefix app test && node --test tests/**/*.test.js",
     "preview": "npm --prefix app run preview"
   }
 }

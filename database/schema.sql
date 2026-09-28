@@ -1,17 +1,19 @@
 -- ==============================================================================
--- CSP Village Information Portal & Survey System — Refined Database Schema
+-- CSP Village Information Portal & Survey System — Consolidated Schema Baseline
 -- Architecture: Supabase PostgreSQL (Postgres 15+)
--- Scope: Academic Community Service Project (CSP)
--- Rules: Zero emojis, explicit verification metadata, publication workflow, strict RLS
+-- Scope: Modavalasa Gram Panchayat (Denkada Mandal, Vizianagaram District)
+-- Rules: Zero emojis, explicit verification metadata, strict RLS, immutable search_path
+-- Synchronization: Matches live database migration baseline through phase_0 hardening
 -- ==============================================================================
 
--- Enable UUID extension
+-- 1. EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ==============================================================================
--- 1. VILLAGES (Master Habitation Configuration)
+-- 2. MASTER HABITATION CONFIGURATION
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS villages (
+CREATE TABLE IF NOT EXISTS public.villages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     gram_panchayat TEXT NOT NULL,
@@ -22,502 +24,285 @@ CREATE TABLE IF NOT EXISTS villages (
     source TEXT NOT NULL,
     verified_on DATE NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    pin TEXT DEFAULT '531162',
+    sub_post_office TEXT DEFAULT 'Chittivalasa S.O.',
+    branch_post_office TEXT DEFAULT 'Modavalasa B.O.',
+    postal_division TEXT DEFAULT 'Visakhapatnam Division',
+    census_village_code TEXT DEFAULT '583218',
+    power_utility TEXT DEFAULT 'APEPDCL',
+    electricity_helpline TEXT DEFAULT '1912'
 );
 
-CREATE INDEX IF NOT EXISTS idx_villages_name ON villages(name);
+CREATE INDEX IF NOT EXISTS idx_villages_name ON public.villages(name);
 
 -- ==============================================================================
--- 2. SURVEY QUESTIONS (Database-Driven Questionnaire Specification)
+-- 3. ADMINISTRATIVE ACCESS CONTROL
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS survey_questions (
+CREATE TABLE IF NOT EXISTS public.admin_users (
+    user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    email TEXT UNIQUE NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ==============================================================================
+-- 4. VILLAGE LOCALITIES CATALOG
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.village_localities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    question_code TEXT UNIQUE NOT NULL, -- e.g., 'D1', 'TECH1', 'SCH1'
-    section TEXT NOT NULL,             -- Demographics, Digital Infrastructure, Welfare Schemes, etc.
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
+    locality_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Active',
+    source TEXT NOT NULL DEFAULT 'Panchayat Cadastral Survey',
+    verified_on DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    verification_method TEXT,
+    CONSTRAINT uq_village_locality UNIQUE (village_id, locality_name)
+);
+
+-- ==============================================================================
+-- 5. STANDARDIZED SURVEY INSTRUMENT
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.survey_questions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    question_code TEXT UNIQUE NOT NULL,
+    section TEXT NOT NULL,
     question_text TEXT NOT NULL,
-    question_type TEXT NOT NULL,       -- single_choice, multi_choice, number, text
-    options JSONB,                     -- Array of option objects [{"value": "...", "label": "..."}]
+    question_type TEXT NOT NULL,
+    options JSONB,
     required BOOLEAN NOT NULL DEFAULT true,
     display_order INTEGER NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_survey_questions_order ON survey_questions(display_order);
+CREATE INDEX IF NOT EXISTS idx_survey_questions_order ON public.survey_questions(display_order);
 
 -- ==============================================================================
--- 3. SURVEY RESPONSES (Anonymous Household Interviews)
+-- 6. PSEUDONYMOUS HOUSEHOLD INTERVIEWS
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS survey_responses (
+CREATE TABLE IF NOT EXISTS public.survey_responses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
-    respondent_code TEXT NOT NULL,     -- e.g., HH-001 (Pseudonymous, zero PII)
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
+    respondent_code TEXT NOT NULL,
     interviewer_name TEXT NOT NULL,
-    locality_ward TEXT,                -- Optional broad locality or ward indicator
+    ward_street TEXT,
     consent_obtained BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    locality_ward TEXT,
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    survey_client_uuid UUID,
+    notes TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_survey_responses_village ON survey_responses(village_id);
-CREATE INDEX IF NOT EXISTS idx_survey_responses_code ON survey_responses(respondent_code);
+CREATE INDEX IF NOT EXISTS idx_survey_responses_village ON public.survey_responses(village_id);
+CREATE INDEX IF NOT EXISTS idx_survey_responses_code ON public.survey_responses(respondent_code);
+CREATE UNIQUE INDEX IF NOT EXISTS survey_responses_client_uuid_uidx ON public.survey_responses(survey_client_uuid);
 
 -- ==============================================================================
--- 4. SURVEY ANSWERS (Normalized Question-Answer Pairs)
+-- 7. NORMALIZED SURVEY ANSWERS
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS survey_answers (
+CREATE TABLE IF NOT EXISTS public.survey_answers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    response_id UUID NOT NULL REFERENCES survey_responses(id) ON DELETE CASCADE,
-    question_code TEXT NOT NULL REFERENCES survey_questions(question_code) ON DELETE CASCADE,
+    response_id UUID NOT NULL REFERENCES public.survey_responses(id) ON DELETE CASCADE,
+    question_code TEXT NOT NULL,
     answer_value TEXT NOT NULL,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT uq_response_question UNIQUE (response_id, question_code)
+    CONSTRAINT uq_response_question_answer UNIQUE (response_id, question_code, answer_value)
 );
 
-CREATE INDEX IF NOT EXISTS idx_survey_answers_response ON survey_answers(response_id);
-CREATE INDEX IF NOT EXISTS idx_survey_answers_qc ON survey_answers(question_code);
-CREATE INDEX IF NOT EXISTS idx_survey_answers_qc_val ON survey_answers(question_code, answer_value);
+CREATE INDEX IF NOT EXISTS idx_survey_answers_response ON public.survey_answers(response_id);
+CREATE INDEX IF NOT EXISTS idx_survey_answers_qc ON public.survey_answers(question_code);
+CREATE INDEX IF NOT EXISTS idx_survey_answers_qc_val ON public.survey_answers(question_code, answer_value);
 
 -- ==============================================================================
--- 5. GOVERNMENT SCHEMES (Verified Welfare Programs)
+-- 8. VERIFIED GOVERNMENT WELFARE SCHEMES
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS schemes (
+CREATE TABLE IF NOT EXISTS public.schemes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    category TEXT NOT NULL,            -- Agriculture, Housing, Health, Education, Pension, Livelihood
+    category TEXT NOT NULL,
     description TEXT NOT NULL,
     eligibility TEXT NOT NULL,
     documents TEXT NOT NULL,
     official_url TEXT NOT NULL,
     source TEXT NOT NULL,
     verified_on DATE NOT NULL,
-    image_url TEXT,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'verified', 'published')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published')),
+    name_te TEXT,
+    description_te TEXT,
+    eligibility_te TEXT,
+    documents_te TEXT,
+    image_url TEXT,
+    department TEXT,
+    benefits TEXT,
+    exclusions TEXT,
+    application_process TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_schemes_village_status ON schemes(village_id, status);
-CREATE INDEX IF NOT EXISTS idx_schemes_category ON schemes(category);
+CREATE INDEX IF NOT EXISTS idx_schemes_village_status ON public.schemes(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_schemes_category ON public.schemes(category);
+CREATE INDEX IF NOT EXISTS idx_schemes_village_cat ON public.schemes(village_id, category);
 
 -- ==============================================================================
--- 6. IMPORTANT CONTACTS (Emergency & Local Administration Directory)
+-- 9. EMERGENCY & ADMINISTRATIVE CONTACTS
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS contacts (
+CREATE TABLE IF NOT EXISTS public.contacts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     designation TEXT,
-    category TEXT NOT NULL,            -- Emergency, Administration, Healthcare, Education, Utilities
-    phone TEXT NOT NULL,
+    category TEXT NOT NULL,
+    phone TEXT,
     address TEXT,
-    availability TEXT,                -- e.g., 24x7, 09:00 AM - 05:00 PM
+    availability TEXT,
     source TEXT NOT NULL,
     verified_on DATE NOT NULL,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'verified', 'published')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published')),
+    name_te TEXT,
+    designation_te TEXT,
+    jurisdiction TEXT DEFAULT 'Local Habitation',
+    verification_method TEXT,
+    address_verified BOOLEAN DEFAULT false,
+    address_status TEXT,
+    phone_verified BOOLEAN DEFAULT false,
+    locality TEXT,
+    mandal TEXT,
+    district TEXT,
+    state TEXT,
+    pin TEXT,
+    landmark TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_contacts_village_status ON contacts(village_id, status);
-CREATE INDEX IF NOT EXISTS idx_contacts_category ON contacts(category);
+CREATE INDEX IF NOT EXISTS idx_contacts_village_status ON public.contacts(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_contacts_category ON public.contacts(category);
+CREATE INDEX IF NOT EXISTS idx_contacts_village_cat ON public.contacts(village_id, category);
 
 -- ==============================================================================
--- 7. INSTITUTIONS (Schools, Anganwadis, and Healthcare Facilities)
+-- 10. PUBLIC INSTITUTIONS
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS institutions (
+CREATE TABLE IF NOT EXISTS public.institutions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
-    type TEXT NOT NULL,                -- Primary Health Centre, Sub-Centre, Primary School, High School, Anganwadi
-    address TEXT NOT NULL,
+    type TEXT NOT NULL,
+    address TEXT,
     phone TEXT,
     timings TEXT NOT NULL,
     services TEXT NOT NULL,
     source TEXT NOT NULL,
     verified_on DATE NOT NULL,
-    image_url TEXT,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'verified', 'published')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published')),
+    name_te TEXT,
+    services_te TEXT,
+    image_url TEXT,
+    verification_method TEXT,
+    address_verified BOOLEAN DEFAULT false,
+    address_status TEXT,
+    phone_verified BOOLEAN DEFAULT false,
+    locality TEXT,
+    mandal TEXT,
+    district TEXT,
+    state TEXT,
+    pin TEXT,
+    landmark TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_institutions_village_status ON institutions(village_id, status);
-CREATE INDEX IF NOT EXISTS idx_institutions_type ON institutions(type);
+CREATE INDEX IF NOT EXISTS idx_institutions_village_status ON public.institutions(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_institutions_type ON public.institutions(type);
+CREATE INDEX IF NOT EXISTS idx_institutions_village_type ON public.institutions(village_id, type);
 
 -- ==============================================================================
--- 8. LOCAL BUSINESSES & SHGs (Artisans, Trades, Micro-Enterprises)
+-- 11. LOCAL BUSINESSES & MICRO-ENTERPRISES
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS businesses (
+CREATE TABLE IF NOT EXISTS public.businesses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     owner_name TEXT,
-    category TEXT NOT NULL,            -- Artisan, Tailor, Electrician, Mechanic, Grocery, SHG
-    services TEXT NOT NULL,
-    address TEXT NOT NULL,
+    category TEXT NOT NULL,
+    services TEXT,
+    address TEXT,
     phone TEXT,
     source TEXT NOT NULL,
     verified_on DATE NOT NULL,
-    image_url TEXT,
-    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'verified', 'published')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published')),
+    name_te TEXT,
+    services_te TEXT,
+    image_url TEXT,
+    verification_method TEXT,
+    address_verified BOOLEAN DEFAULT false,
+    address_status TEXT,
+    phone_verified BOOLEAN DEFAULT false,
+    locality TEXT,
+    mandal TEXT,
+    district TEXT,
+    state TEXT,
+    pin TEXT,
+    landmark TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_businesses_village_status ON businesses(village_id, status);
-CREATE INDEX IF NOT EXISTS idx_businesses_category ON businesses(category);
+CREATE INDEX IF NOT EXISTS idx_businesses_village_status ON public.businesses(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_businesses_category ON public.businesses(category);
+CREATE INDEX IF NOT EXISTS idx_businesses_village_cat ON public.businesses(village_id, category);
 
 -- ==============================================================================
--- 9. ANNOUNCEMENTS & IMPORTANT INFORMATION
+-- 12. PUBLIC ANNOUNCEMENTS
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS announcements (
+CREATE TABLE IF NOT EXISTS public.announcements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     title_te TEXT,
     description TEXT NOT NULL,
     description_te TEXT,
     event_date DATE,
-    category TEXT NOT NULL DEFAULT 'General', -- Grama Sabha, Health Camp, Scheme Deadline, General
+    category TEXT NOT NULL DEFAULT 'General',
     source TEXT NOT NULL,
     verified_on DATE NOT NULL,
-    image_url TEXT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'verified', 'published')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    image_url TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_announcements_village_status ON announcements(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_announcements_village_status ON public.announcements(village_id, status);
 
 -- ==============================================================================
--- 10. CITIZEN FEEDBACK & INFORMATION CORRECTIONS
+-- 13. CITIZEN FEEDBACK
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS citizen_feedback (
+CREATE TABLE IF NOT EXISTS public.citizen_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     name TEXT,
     phone TEXT,
-    feedback_type TEXT NOT NULL DEFAULT 'General', -- Correction, New Listing Request, Usability, General
+    feedback_type TEXT NOT NULL DEFAULT 'General',
     message TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Reviewed', 'Resolved')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    status TEXT NOT NULL DEFAULT 'Pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reference_id TEXT UNIQUE,
+    CONSTRAINT chk_citizen_feedback_message_length CHECK (length(trim(message)) >= 10 AND length(message) <= 2000)
 );
 
-CREATE INDEX IF NOT EXISTS idx_feedback_village_status ON citizen_feedback(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_feedback_village_status ON public.citizen_feedback(village_id, status);
 
 -- ==============================================================================
--- COLUMN MIGRATIONS (Ensure columns exist if tables already created previously)
+-- 14. HEALTHCARE CLINICAL SCHEDULES
 -- ==============================================================================
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'schemes' AND column_name = 'status') THEN
-        ALTER TABLE schemes ADD COLUMN status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published'));
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'schemes' AND column_name = 'name_te') THEN
-        ALTER TABLE schemes ADD COLUMN name_te TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'schemes' AND column_name = 'description_te') THEN
-        ALTER TABLE schemes ADD COLUMN description_te TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'schemes' AND column_name = 'eligibility_te') THEN
-        ALTER TABLE schemes ADD COLUMN eligibility_te TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'schemes' AND column_name = 'documents_te') THEN
-        ALTER TABLE schemes ADD COLUMN documents_te TEXT;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'contacts' AND column_name = 'status') THEN
-        ALTER TABLE contacts ADD COLUMN status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published'));
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'contacts' AND column_name = 'name_te') THEN
-        ALTER TABLE contacts ADD COLUMN name_te TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'contacts' AND column_name = 'designation_te') THEN
-        ALTER TABLE contacts ADD COLUMN designation_te TEXT;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'institutions' AND column_name = 'status') THEN
-        ALTER TABLE institutions ADD COLUMN status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published'));
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'institutions' AND column_name = 'name_te') THEN
-        ALTER TABLE institutions ADD COLUMN name_te TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'institutions' AND column_name = 'services_te') THEN
-        ALTER TABLE institutions ADD COLUMN services_te TEXT;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'status') THEN
-        ALTER TABLE businesses ADD COLUMN status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published'));
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'name_te') THEN
-        ALTER TABLE businesses ADD COLUMN name_te TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'businesses' AND column_name = 'services_te') THEN
-        ALTER TABLE businesses ADD COLUMN services_te TEXT;
-    END IF;
-
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'survey_responses' AND column_name = 'locality_ward') THEN
-        ALTER TABLE survey_responses ADD COLUMN locality_ward TEXT;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'survey_responses' AND column_name = 'started_at') THEN
-        ALTER TABLE survey_responses ADD COLUMN started_at TIMESTAMPTZ;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'survey_responses' AND column_name = 'completed_at') THEN
-        ALTER TABLE survey_responses ADD COLUMN completed_at TIMESTAMPTZ;
-    END IF;
-END $$;
-
--- ==============================================================================
--- ROW LEVEL SECURITY (RLS) POLICIES
--- ==============================================================================
-
-ALTER TABLE villages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE survey_questions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE survey_responses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE survey_answers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE schemes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
-ALTER TABLE citizen_feedback ENABLE ROW LEVEL SECURITY;
-
--- ------------------------------------------------------------------------------
--- Clean up any existing policies before recreating
--- ------------------------------------------------------------------------------
-DROP POLICY IF EXISTS "Public read villages" ON villages;
-DROP POLICY IF EXISTS "Public read survey questions" ON survey_questions;
-DROP POLICY IF EXISTS "Public read published schemes" ON schemes;
-DROP POLICY IF EXISTS "Public read access to schemes" ON schemes;
-DROP POLICY IF EXISTS "Public read published contacts" ON contacts;
-DROP POLICY IF EXISTS "Public read access to contacts" ON contacts;
-DROP POLICY IF EXISTS "Public read published institutions" ON institutions;
-DROP POLICY IF EXISTS "Public read access to institutions" ON institutions;
-DROP POLICY IF EXISTS "Public read published businesses" ON businesses;
-DROP POLICY IF EXISTS "Public read access to businesses" ON businesses;
-DROP POLICY IF EXISTS "Public read published announcements" ON announcements;
-DROP POLICY IF EXISTS "Public insert citizen feedback" ON citizen_feedback;
-DROP POLICY IF EXISTS "Public can submit citizen feedback" ON citizen_feedback;
-
-DROP POLICY IF EXISTS "Admin manage villages" ON villages;
-DROP POLICY IF EXISTS "Admin insert villages" ON villages;
-DROP POLICY IF EXISTS "Admin update villages" ON villages;
-DROP POLICY IF EXISTS "Admin delete villages" ON villages;
-DROP POLICY IF EXISTS "Admin manage survey questions" ON survey_questions;
-DROP POLICY IF EXISTS "Admin manage survey responses" ON survey_responses;
-DROP POLICY IF EXISTS "Admins can read survey responses" ON survey_responses;
-DROP POLICY IF EXISTS "Surveyors and admins can insert survey responses" ON survey_responses;
-DROP POLICY IF EXISTS "Admins can update survey responses" ON survey_responses;
-DROP POLICY IF EXISTS "Admins can delete survey responses" ON survey_responses;
-DROP POLICY IF EXISTS "Admin manage survey answers" ON survey_answers;
-DROP POLICY IF EXISTS "Admins can read survey answers" ON survey_answers;
-DROP POLICY IF EXISTS "Surveyors and admins can insert survey answers" ON survey_answers;
-DROP POLICY IF EXISTS "Admins can update survey answers" ON survey_answers;
-DROP POLICY IF EXISTS "Admins can delete survey answers" ON survey_answers;
-DROP POLICY IF EXISTS "Admin manage schemes" ON schemes;
-DROP POLICY IF EXISTS "Admin insert schemes" ON schemes;
-DROP POLICY IF EXISTS "Admin update schemes" ON schemes;
-DROP POLICY IF EXISTS "Admin delete schemes" ON schemes;
-DROP POLICY IF EXISTS "Admin manage contacts" ON contacts;
-DROP POLICY IF EXISTS "Admin insert contacts" ON contacts;
-DROP POLICY IF EXISTS "Admin update contacts" ON contacts;
-DROP POLICY IF EXISTS "Admin delete contacts" ON contacts;
-DROP POLICY IF EXISTS "Admin manage institutions" ON institutions;
-DROP POLICY IF EXISTS "Admin insert institutions" ON institutions;
-DROP POLICY IF EXISTS "Admin update institutions" ON institutions;
-DROP POLICY IF EXISTS "Admin delete institutions" ON institutions;
-DROP POLICY IF EXISTS "Admin manage businesses" ON businesses;
-DROP POLICY IF EXISTS "Admin insert businesses" ON businesses;
-DROP POLICY IF EXISTS "Admin update businesses" ON businesses;
-DROP POLICY IF EXISTS "Admin delete businesses" ON businesses;
-DROP POLICY IF EXISTS "Admin manage citizen feedback" ON citizen_feedback;
-DROP POLICY IF EXISTS "Admin read citizen feedback" ON citizen_feedback;
-DROP POLICY IF EXISTS "Admin update citizen feedback status" ON citizen_feedback;
-
--- ------------------------------------------------------------------------------
--- A. Public Policies
--- ------------------------------------------------------------------------------
-CREATE POLICY "Public read villages"
-    ON villages FOR SELECT
-    TO anon, authenticated
-    USING (true);
-
-CREATE POLICY "Public read survey questions"
-    ON survey_questions FOR SELECT
-    TO anon, authenticated
-    USING (true);
-
-CREATE POLICY "Public read published schemes"
-    ON schemes FOR SELECT
-    TO anon, authenticated
-    USING (status = 'published');
-
-CREATE POLICY "Public read published contacts"
-    ON contacts FOR SELECT
-    TO anon, authenticated
-    USING (status = 'published');
-
-CREATE POLICY "Public read published institutions"
-    ON institutions FOR SELECT
-    TO anon, authenticated
-    USING (status = 'published');
-
-CREATE POLICY "Public read published businesses"
-    ON businesses FOR SELECT
-    TO anon, authenticated
-    USING (status = 'published');
-
-CREATE POLICY "Public read published announcements"
-    ON announcements FOR SELECT
-    TO anon, authenticated
-    USING (status = 'published');
-
-CREATE POLICY "Public insert citizen feedback"
-    ON citizen_feedback FOR INSERT
-    TO anon, authenticated
-    WITH CHECK (true);
-
--- ------------------------------------------------------------------------------
--- B. Authenticated Admin Policies
--- ------------------------------------------------------------------------------
-CREATE POLICY "Admin manage villages"
-    ON villages FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage survey questions"
-    ON survey_questions FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage survey responses"
-    ON survey_responses FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage survey answers"
-    ON survey_answers FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage schemes"
-    ON schemes FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage contacts"
-    ON contacts FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage institutions"
-    ON institutions FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage businesses"
-    ON businesses FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage announcements"
-    ON announcements FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
-CREATE POLICY "Admin manage citizen feedback"
-    ON citizen_feedback FOR ALL
-    TO authenticated
-    USING (true)
-    WITH CHECK (true);
-
--- ------------------------------------------------------------------------------
--- REFINED DASHBOARD AGGREGATION VIEW
--- Calculates percentage relative to answers for that specific question
--- ------------------------------------------------------------------------------
-DROP VIEW IF EXISTS view_survey_metric_counts;
-
-CREATE OR REPLACE VIEW view_survey_metric_counts AS
-SELECT 
-    sa.question_code,
-    sa.answer_value,
-    COUNT(*)::INTEGER AS response_count,
-    ROUND((COUNT(*)::NUMERIC / NULLIF((
-        SELECT COUNT(*) 
-        FROM survey_answers sub 
-        WHERE sub.question_code = sa.question_code
-    ), 0)) * 100, 1) AS percentage_of_question_answers
-FROM survey_answers sa
-GROUP BY sa.question_code, sa.answer_value
-ORDER BY sa.question_code, response_count DESC;
-
--- ==============================================================================
--- INITIAL SEED: 18 CSP SURVEY QUESTIONS
--- Populates the standardized survey instrument into the database
--- ==============================================================================
-INSERT INTO survey_questions (question_code, section, question_text, question_type, options, required, display_order)
-VALUES
-    ('D1', 'Demographics', 'Age Group of Respondent', 'single_choice', 
-     '[{"value": "18-25", "label": "18 - 25 years"}, {"value": "26-40", "label": "26 - 40 years"}, {"value": "41-60", "label": "41 - 60 years"}, {"value": "Above-60", "label": "Above 60 years"}]'::jsonb, true, 1),
-    ('D2', 'Demographics', 'Gender', 'single_choice', 
-     '[{"value": "Male", "label": "Male"}, {"value": "Female", "label": "Female"}, {"value": "Other", "label": "Other / Prefer not to say"}]'::jsonb, true, 2),
-    ('D3', 'Demographics', 'Primary Occupation of Household Head', 'single_choice', 
-     '[{"value": "Agriculture", "label": "Agriculture / Farming"}, {"value": "Agri-Labor", "label": "Agricultural Laborer / Daily Wage"}, {"value": "Artisan-Trades", "label": "Artisan / Tradesperson"}, {"value": "Small-Business", "label": "Small Business / Vendor"}, {"value": "Salaried", "label": "Salaried Employment"}, {"value": "Other", "label": "Other"}]'::jsonb, true, 3),
-    ('D4', 'Demographics', 'Highest Education Level in Household', 'single_choice', 
-     '[{"value": "Non-Literate", "label": "Non-literate"}, {"value": "Primary", "label": "Primary School (1-5)"}, {"value": "Secondary", "label": "Secondary School (6-10)"}, {"value": "Higher-Secondary", "label": "Higher Secondary (11-12)"}, {"value": "Diploma", "label": "Diploma / Vocational"}, {"value": "Graduate-Plus", "label": "Graduate / Post-Graduate"}]'::jsonb, true, 4),
-    ('D5', 'Demographics', 'Total Household Members', 'number', NULL, false, 5),
-    ('TECH1', 'Digital Infrastructure', 'Working Smartphone Availability in Household', 'single_choice', 
-     '[{"value": "Smartphone-Available", "label": "Yes, at least one working smartphone"}, {"value": "Basic-Phone-Only", "label": "Basic feature phone only"}, {"value": "No-Phone", "label": "No mobile phone"}]'::jsonb, true, 6),
-    ('TECH2', 'Digital Infrastructure', 'Primary Internet Access Mode', 'single_choice', 
-     '[{"value": "Mobile-Data-4G-5G", "label": "Mobile Data (4G / 5G)"}, {"value": "Mobile-Data-2G-3G", "label": "Mobile Data (2G / 3G low-bandwidth)"}, {"value": "Broadband-Wifi", "label": "Home Broadband / Wi-Fi"}, {"value": "No-Internet", "label": "No internet access"}]'::jsonb, true, 7),
-    ('TECH3', 'Digital Infrastructure', 'Independent Digital Browsing & Reading', 'single_choice', 
-     '[{"value": "Independent", "label": "Yes, independently"}, {"value": "Needs-Assistance", "label": "Yes, but requires assistance"}, {"value": "Completely-Dependent", "label": "No, relies on third parties / internet cafes"}]'::jsonb, true, 8),
-    ('SCH1', 'Welfare Schemes', 'Primary Source for Learning About Welfare Schemes', 'single_choice', 
-     '[{"value": "Word-Of-Mouth", "label": "Word of mouth"}, {"value": "Panchayat-Notices", "label": "Panchayat notices / Grama Sabha"}, {"value": "Intermediaries", "label": "Intermediaries / Middlemen"}, {"value": "CSC-Center", "label": "CSC / Internet Cafe"}, {"value": "Official-Websites", "label": "Official Government Portals"}, {"value": "Social-Media", "label": "Social Media (WhatsApp/YouTube)"}]'::jsonb, true, 9),
-    ('SCH2', 'Welfare Schemes', 'Biggest Challenge When Applying for Schemes', 'single_choice', 
-     '[{"value": "Unknown-Eligibility-Docs", "label": "Not knowing eligibility or required documents"}, {"value": "Repeated-Office-Visits", "label": "Repeated mandal visits due to missing paperwork"}, {"value": "Unsure-Official-Link", "label": "Uncertainty over whether link is genuine"}, {"value": "Intermediary-Fees", "label": "Paying fees to intermediaries"}, {"value": "No-Challenge", "label": "No challenge faced"}]'::jsonb, true, 10),
-    ('SCH3', 'Welfare Schemes', 'Confusion Identifying Official Government Domains (.gov.in)', 'single_choice', 
-     '[{"value": "Frequently-Confused", "label": "Frequently confused by private sites"}, {"value": "Sometimes-Unsure", "label": "Sometimes unsure"}, {"value": "Easily-Distinguishes", "label": "Can distinguish official portals easily"}, {"value": "Does-Not-Use", "label": "Does not use government websites"}]'::jsonb, true, 11),
-    ('CON1_Panchayat', 'Emergency Contacts', 'Has Panchayat Secretary / Sarpanch Number Saved', 'single_choice', 
-     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 12),
-    ('CON1_PHC', 'Emergency Contacts', 'Has Primary Health Centre / Ambulance Number Saved', 'single_choice', 
-     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 13),
-    ('CON1_Police', 'Emergency Contacts', 'Has Police Station / Outpost Number Saved', 'single_choice', 
-     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 14),
-    ('CON1_Lineman', 'Emergency Contacts', 'Has Electricity Lineman / Water Operator Number Saved', 'single_choice', 
-     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 15),
-    ('CON2', 'Emergency Contacts', 'How Emergency Contacts Are Looked Up in Crisis', 'single_choice', 
-     '[{"value": "Ask-Neighbors", "label": "Ask neighbors or acquaintances"}, {"value": "Visit-Panchayat", "label": "Visit Panchayat office or wall board"}, {"value": "Saved-In-Phone", "label": "Already saved in mobile phone"}, {"value": "Struggle-To-Find", "label": "Struggle to find the verified number quickly"}]'::jsonb, true, 16),
-    ('HLTH1', 'Healthcare & Education', 'How Doctor Availability at PHC is Checked', 'single_choice', 
-     '[{"value": "Visit-In-Person", "label": "Visit in person (risk doctor absence)"}, {"value": "Contact-ASHA-ANM", "label": "Contact ASHA worker / ANM"}, {"value": "Official-Board", "label": "Official notice board"}, {"value": "No-Way-To-Check", "label": "No reliable way to check beforehand"}]'::jsonb, true, 17),
-    ('EDU1', 'Healthcare & Education', 'Ease of Obtaining School / Anganwadi Details', 'single_choice', 
-     '[{"value": "Scattered-Hard", "label": "Scattered and requires in-person visits"}, {"value": "Easily-Accessible", "label": "Easily accessible"}, {"value": "Not-Applicable", "label": "Not applicable"}]'::jsonb, true, 18),
-    ('BIZ1', 'Local Economy', 'How Village Tradespeople (Mechanic, Tailor, Electrician) Are Found', 'single_choice', 
-     '[{"value": "Personal-Contacts", "label": "Rely on personal contacts / immediate ward"}, {"value": "Ask-At-Market", "label": "Ask around village bazaar"}, {"value": "Struggle-To-Find", "label": "Often struggle to find available skilled persons"}]'::jsonb, true, 19),
-    ('BIZ2', 'Local Economy', 'Utility of Verified Village Business & SHG Directory', 'single_choice', 
-     '[{"value": "Very-Helpful", "label": "Yes, very helpful"}, {"value": "Somewhat-Helpful", "label": "Somewhat helpful"}, {"value": "Not-Necessary", "label": "Not necessary"}]'::jsonb, true, 20),
-    ('PRIO1', 'Citizen Priorities', 'Top Priority Category for Village Information Portal', 'single_choice', 
-     '[{"value": "Emergency-Contacts", "label": "Emergency & Official Contacts"}, {"value": "Government-Schemes", "label": "Government Schemes & Document Checklists"}, {"value": "Healthcare-PHC", "label": "PHC Doctor Timings & Healthcare Services"}, {"value": "Education-Schools", "label": "School & Anganwadi Information"}, {"value": "Local-Business-Directory", "label": "Local Business & Artisan Directory"}, {"value": "Panchayat-Announcements", "label": "Panchayat Public Notices"}]'::jsonb, true, 21)
-ON CONFLICT (question_code) DO NOTHING;
-
--- ==============================================================================
--- 11. CLINICAL SCHEDULES (Doctor OPD Duty Roster & Consultation)
--- ==============================================================================
-CREATE TABLE IF NOT EXISTS clinical_schedules (
+CREATE TABLE IF NOT EXISTS public.clinical_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     facility_name TEXT NOT NULL,
     doctor_role TEXT NOT NULL,
     doctor_role_te TEXT,
@@ -538,14 +323,14 @@ CREATE TABLE IF NOT EXISTS clinical_schedules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_clinical_schedules_village_status ON clinical_schedules(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_clinical_schedules_village_status ON public.clinical_schedules(village_id, status);
 
 -- ==============================================================================
--- 12. IMMUNIZATION SCHEDULES (Vaccination Drives, Maternal & Child Immunizations)
+-- 15. HEALTHCARE IMMUNIZATION SCHEDULES
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS immunization_schedules (
+CREATE TABLE IF NOT EXISTS public.immunization_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     session_name TEXT NOT NULL,
     session_name_te TEXT,
     frequency_or_date TEXT NOT NULL,
@@ -567,14 +352,14 @@ CREATE TABLE IF NOT EXISTS immunization_schedules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_immunization_schedules_village_status ON immunization_schedules(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_immunization_schedules_village_status ON public.immunization_schedules(village_id, status);
 
 -- ==============================================================================
--- 13. DIAGNOSTIC SERVICES (Laboratory Test Availability & NHM Diagnostics)
+-- 16. HEALTHCARE DIAGNOSTIC SERVICES
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS diagnostic_services (
+CREATE TABLE IF NOT EXISTS public.diagnostic_services (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village_id UUID NOT NULL REFERENCES villages(id) ON DELETE CASCADE,
+    village_id UUID NOT NULL REFERENCES public.villages(id) ON DELETE CASCADE,
     test_name TEXT NOT NULL,
     test_name_te TEXT,
     category TEXT NOT NULL,
@@ -597,42 +382,666 @@ CREATE TABLE IF NOT EXISTS diagnostic_services (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_diagnostic_services_village_status ON diagnostic_services(village_id, status);
+CREATE INDEX IF NOT EXISTS idx_diagnostic_services_village_status ON public.diagnostic_services(village_id, status);
 
--- Enable RLS
-ALTER TABLE clinical_schedules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE immunization_schedules ENABLE ROW LEVEL SECURITY;
-ALTER TABLE diagnostic_services ENABLE ROW LEVEL SECURITY;
+-- ==============================================================================
+-- 17. ANALYTICAL VIEWS
+-- Pinned with security_invoker = true to respect caller RLS context
+-- ==============================================================================
+DROP VIEW IF EXISTS public.view_survey_metric_counts;
 
--- Public Read Policies
-DROP POLICY IF EXISTS "Public read published clinical schedules" ON clinical_schedules;
-CREATE POLICY "Public read published clinical schedules" ON clinical_schedules
-    FOR SELECT TO anon, authenticated
-    USING (status = 'published');
+CREATE VIEW public.view_survey_metric_counts
+WITH (security_invoker = true) AS
+SELECT 
+    sa.question_code,
+    sa.answer_value,
+    COUNT(*)::INTEGER AS response_count,
+    ROUND((COUNT(*)::NUMERIC / NULLIF((
+        SELECT COUNT(*) 
+        FROM public.survey_answers sub 
+        WHERE sub.question_code = sa.question_code
+    ), 0)) * 100, 1) AS percentage_of_question_answers
+FROM public.survey_answers sa
+GROUP BY sa.question_code, sa.answer_value
+ORDER BY sa.question_code, response_count DESC;
 
-DROP POLICY IF EXISTS "Public read published immunization schedules" ON immunization_schedules;
-CREATE POLICY "Public read published immunization schedules" ON immunization_schedules
-    FOR SELECT TO anon, authenticated
-    USING (status = 'published');
+-- ==============================================================================
+-- 18. FUNCTIONS & PROCEDURES
+-- All functions pinned with immutable search_path TO 'public', 'pg_temp'
+-- ==============================================================================
 
-DROP POLICY IF EXISTS "Public read published diagnostic services" ON diagnostic_services;
-CREATE POLICY "Public read published diagnostic services" ON diagnostic_services
-    FOR SELECT TO anon, authenticated
-    USING (status = 'published');
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+BEGIN
+    RETURN (
+        auth.role() = 'authenticated'
+        AND EXISTS (
+            SELECT 1 FROM public.admin_users
+            WHERE user_id = auth.uid() AND role = 'admin'
+        )
+    );
+END;
+$$;
 
--- Admin Manage Policies
-DROP POLICY IF EXISTS "Admin manage clinical schedules" ON clinical_schedules;
-CREATE POLICY "Admin manage clinical schedules" ON clinical_schedules
-    FOR ALL TO authenticated
-    USING (is_admin());
+CREATE OR REPLACE FUNCTION public.create_admin_user(new_email text, temp_password text, user_role text DEFAULT 'admin'::text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+  v_user_id uuid := gen_random_uuid();
+  v_clean_email text := lower(trim(new_email));
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Unauthorized: Only verified administrators can create users.';
+  END IF;
 
-DROP POLICY IF EXISTS "Admin manage immunization schedules" ON immunization_schedules;
-CREATE POLICY "Admin manage immunization schedules" ON immunization_schedules
-    FOR ALL TO authenticated
-    USING (is_admin());
+  IF EXISTS (SELECT 1 FROM auth.users WHERE email = v_clean_email) THEN
+    RAISE EXCEPTION 'A user with this email already exists.';
+  END IF;
 
-DROP POLICY IF EXISTS "Admin manage diagnostic services" ON diagnostic_services;
-CREATE POLICY "Admin manage diagnostic services" ON diagnostic_services
-    FOR ALL TO authenticated
-    USING (is_admin());
+  IF length(temp_password) < 6 THEN
+    RAISE EXCEPTION 'Temporary password must be at least 6 characters.';
+  END IF;
 
+  INSERT INTO auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token
+  ) VALUES (
+    '00000000-0000-0000-0000-000000000000',
+    v_user_id,
+    'authenticated',
+    'authenticated',
+    v_clean_email,
+    crypt(temp_password, gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    jsonb_build_object('role', user_role, 'must_change_password', true),
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    ''
+  );
+
+  INSERT INTO auth.identities (
+    id,
+    user_id,
+    identity_data,
+    provider,
+    provider_id,
+    last_sign_in_at,
+    created_at,
+    updated_at
+  ) VALUES (
+    v_user_id,
+    v_user_id,
+    jsonb_build_object('sub', v_user_id::text, 'email', v_clean_email),
+    'email',
+    v_clean_email,
+    now(),
+    now(),
+    now()
+  );
+
+  IF user_role = 'admin' THEN
+    INSERT INTO public.admin_users (user_id, role)
+    VALUES (v_user_id, 'admin')
+    ON CONFLICT (user_id) DO UPDATE SET role = 'admin';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'id', v_user_id,
+    'email', v_clean_email
+  );
+END;
+$$;
+
+-- Revoke execute on administrative RPCs from anon and public roles
+REVOKE EXECUTE ON FUNCTION public.create_admin_user(text, text, text) FROM anon, PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.get_admin_users()
+RETURNS TABLE(id uuid, email character varying, created_at timestamp with time zone, last_sign_in_at timestamp with time zone, must_change_password boolean)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Unauthorized: Only verified administrators can view accounts.';
+  END IF;
+
+  RETURN QUERY
+  SELECT 
+    u.id,
+    u.email,
+    u.created_at,
+    u.last_sign_in_at,
+    COALESCE((u.raw_user_meta_data->>'must_change_password')::boolean, false) as must_change_password
+  FROM auth.users u
+  ORDER BY u.created_at DESC;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.get_admin_users() FROM anon, PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.check_feedback_status(p_reference_id text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+    v_rec record;
+    v_clean_ref text;
+BEGIN
+    v_clean_ref := upper(trim(p_reference_id));
+    
+    IF v_clean_ref IS NULL OR length(v_clean_ref) < 5 THEN
+        RETURN json_build_object(
+            'found', false,
+            'message', 'Invalid reference ID format'
+        );
+    END IF;
+
+    SELECT reference_id, feedback_type, status, created_at
+    INTO v_rec
+    FROM public.citizen_feedback
+    WHERE upper(reference_id) = v_clean_ref;
+
+    IF NOT FOUND THEN
+        RETURN json_build_object(
+            'found', false,
+            'message', 'No record found with this reference ID'
+        );
+    END IF;
+
+    RETURN json_build_object(
+        'found', true,
+        'reference_id', v_rec.reference_id,
+        'category', v_rec.feedback_type,
+        'status', COALESCE(v_rec.status, 'Pending Verification'),
+        'submitted_at', v_rec.created_at
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_survey_analytics_summary(filter_ward text DEFAULT NULL::text)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+    result json;
+    total_count int;
+BEGIN
+    IF filter_ward IS NOT NULL AND filter_ward <> 'ALL' THEN
+        SELECT count(*) INTO total_count 
+        FROM public.survey_responses 
+        WHERE locality_ward = filter_ward;
+
+        SELECT json_build_object(
+            'total_responses', total_count,
+            'summary_generated_at', now(),
+            'filter_ward', filter_ward,
+            'question_distributions', (
+                SELECT coalesce(json_object_agg(question_code, options_data), '{}'::json)
+                FROM (
+                    SELECT 
+                        question_code,
+                        json_object_agg(answer_value, cnt) as options_data
+                    FROM (
+                        SELECT 
+                            sa.question_code, 
+                            sa.answer_value, 
+                            count(*) as cnt
+                        FROM public.survey_answers sa
+                        INNER JOIN public.survey_responses sr ON sa.response_id = sr.id
+                        WHERE sr.locality_ward = filter_ward
+                        GROUP BY sa.question_code, sa.answer_value
+                        ORDER BY sa.question_code, cnt DESC
+                    ) sub
+                    GROUP BY question_code
+                ) grouped
+            ),
+            'locality_distribution', (
+                SELECT coalesce(json_object_agg(locality_ward, cnt), '{}'::json)
+                FROM (
+                    SELECT coalesce(locality_ward, 'General') as locality_ward, count(*) as cnt
+                    FROM public.survey_responses
+                    GROUP BY locality_ward
+                ) loc
+            )
+        ) INTO result;
+    ELSE
+        SELECT count(*) INTO total_count FROM public.survey_responses;
+
+        SELECT json_build_object(
+            'total_responses', total_count,
+            'summary_generated_at', now(),
+            'filter_ward', 'ALL',
+            'question_distributions', (
+                SELECT coalesce(json_object_agg(question_code, options_data), '{}'::json)
+                FROM (
+                    SELECT 
+                        question_code, 
+                        json_object_agg(answer_value, cnt) as options_data
+                    FROM (
+                        SELECT 
+                            question_code, 
+                            answer_value, 
+                            count(*) as cnt
+                        FROM public.survey_answers
+                        GROUP BY question_code, answer_value
+                        ORDER BY question_code, cnt DESC
+                    ) sub
+                    GROUP BY question_code
+                ) grouped
+            ),
+            'locality_distribution', (
+                SELECT coalesce(json_object_agg(locality_ward, cnt), '{}'::json)
+                FROM (
+                    SELECT coalesce(locality_ward, 'General') as locality_ward, count(*) as cnt
+                    FROM public.survey_responses
+                    GROUP BY locality_ward
+                ) loc
+            )
+        ) INTO result;
+    END IF;
+
+    RETURN result;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.set_citizen_feedback_reference_id()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public', 'pg_temp'
+AS $$
+BEGIN
+    IF NEW.reference_id IS NULL OR NEW.reference_id = '' THEN
+        NEW.reference_id := 'VM-FB-' || to_char(now(), 'YYYY') || '-' || lpad(floor(random() * 90000 + 10000)::text, 5, '0');
+    END IF;
+    IF NEW.status IS NULL OR NEW.status = '' THEN
+        NEW.status := 'Pending Verification';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_set_citizen_feedback_reference_id ON public.citizen_feedback;
+CREATE TRIGGER trg_set_citizen_feedback_reference_id
+    BEFORE INSERT ON public.citizen_feedback
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_citizen_feedback_reference_id();
+
+CREATE OR REPLACE FUNCTION public.submit_survey(
+    p_village_id UUID,
+    p_respondent_code TEXT,
+    p_interviewer_name TEXT,
+    p_ward_street TEXT DEFAULT NULL,
+    p_locality_ward TEXT DEFAULT NULL,
+    p_started_at TIMESTAMPTZ DEFAULT NULL,
+    p_completed_at TIMESTAMPTZ DEFAULT NULL,
+    p_survey_client_uuid UUID DEFAULT NULL,
+    p_notes TEXT DEFAULT NULL,
+    p_answers JSONB DEFAULT '[]'::jsonb
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+    v_response_id UUID;
+    v_answer JSONB;
+    v_inserted_count INT := 0;
+BEGIN
+    -- 1. Idempotency guard: if a response with this client UUID already exists, return existing
+    IF p_survey_client_uuid IS NOT NULL THEN
+        SELECT id INTO v_response_id
+        FROM public.survey_responses
+        WHERE survey_client_uuid = p_survey_client_uuid;
+
+        IF FOUND THEN
+            RETURN jsonb_build_object(
+                'success', true,
+                'response_id', v_response_id,
+                'already_existed', true,
+                'answers_count', (SELECT COUNT(*) FROM public.survey_answers WHERE response_id = v_response_id)
+            );
+        END IF;
+    END IF;
+
+    -- 2. Input validation
+    IF p_village_id IS NULL THEN
+        RAISE EXCEPTION 'village_id is required';
+    END IF;
+    IF p_respondent_code IS NULL OR trim(p_respondent_code) = '' THEN
+        RAISE EXCEPTION 'respondent_code is required';
+    END IF;
+    IF p_interviewer_name IS NULL OR trim(p_interviewer_name) = '' THEN
+        RAISE EXCEPTION 'interviewer_name is required';
+    END IF;
+
+    -- 3. Atomic insertion of survey response header
+    INSERT INTO public.survey_responses (
+        village_id,
+        respondent_code,
+        interviewer_name,
+        ward_street,
+        locality_ward,
+        consent_obtained,
+        started_at,
+        completed_at,
+        survey_client_uuid,
+        notes
+    ) VALUES (
+        p_village_id,
+        trim(p_respondent_code),
+        trim(p_interviewer_name),
+        trim(p_ward_street),
+        trim(p_locality_ward),
+        true,
+        p_started_at,
+        p_completed_at,
+        p_survey_client_uuid,
+        p_notes
+    )
+    RETURNING id INTO v_response_id;
+
+    -- 4. Atomic insertion of answers if provided
+    IF p_answers IS NOT NULL AND jsonb_array_length(p_answers) > 0 THEN
+        FOR v_answer IN SELECT * FROM jsonb_array_elements(p_answers)
+        LOOP
+            INSERT INTO public.survey_answers (
+                response_id,
+                question_code,
+                answer_value,
+                notes
+            ) VALUES (
+                v_response_id,
+                v_answer->>'question_code',
+                v_answer->>'answer_value',
+                v_answer->>'notes'
+            )
+            ON CONFLICT (response_id, question_code, answer_value) DO NOTHING;
+            
+            v_inserted_count := v_inserted_count + 1;
+        END LOOP;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'response_id', v_response_id,
+        'already_existed', false,
+        'answers_count', v_inserted_count
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.submit_survey(
+    UUID, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ, TIMESTAMPTZ, UUID, TEXT, JSONB
+) TO anon, authenticated;
+
+-- ==============================================================================
+-- 19. ROW LEVEL SECURITY (RLS) POLICIES
+-- Enabled on all 14 public tables
+-- ==============================================================================
+
+ALTER TABLE public.villages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.village_localities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.survey_questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.survey_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.survey_answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.schemes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.institutions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.businesses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.citizen_feedback ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clinical_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.immunization_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.diagnostic_services ENABLE ROW LEVEL SECURITY;
+
+-- 19.1 Villages Policies
+DROP POLICY IF EXISTS "Public read access to villages" ON public.villages;
+DROP POLICY IF EXISTS "Public read villages" ON public.villages;
+DROP POLICY IF EXISTS "Admin manage villages" ON public.villages;
+DROP POLICY IF EXISTS "Admin insert villages" ON public.villages;
+DROP POLICY IF EXISTS "Admin update villages" ON public.villages;
+DROP POLICY IF EXISTS "Admin delete villages" ON public.villages;
+
+CREATE POLICY "Public read access to villages"
+  ON public.villages FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "Admin insert villages"
+  ON public.villages FOR INSERT
+  TO authenticated
+  WITH CHECK (is_admin());
+
+CREATE POLICY "Admin update villages"
+  ON public.villages FOR UPDATE
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+CREATE POLICY "Admin delete villages"
+  ON public.villages FOR DELETE
+  TO authenticated
+  USING (is_admin());
+
+-- 19.2 Admin Users Policies
+DROP POLICY IF EXISTS "Users read own admin profile" ON public.admin_users;
+CREATE POLICY "Users read own admin profile"
+  ON public.admin_users FOR SELECT
+  TO authenticated
+  USING (user_id = (SELECT auth.uid()));
+
+-- 19.3 Village Localities Policies
+DROP POLICY IF EXISTS "Allow public read access on village_localities" ON public.village_localities;
+CREATE POLICY "Allow public read access on village_localities"
+  ON public.village_localities FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+-- 19.4 Survey Questions Policies
+DROP POLICY IF EXISTS "Public read survey questions" ON public.survey_questions;
+DROP POLICY IF EXISTS "Admin manage survey questions" ON public.survey_questions;
+
+CREATE POLICY "Public read survey questions"
+  ON public.survey_questions FOR SELECT
+  TO anon, authenticated
+  USING (true);
+
+CREATE POLICY "Admin manage survey questions"
+  ON public.survey_questions FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.5 Survey Responses Policies
+DROP POLICY IF EXISTS "Admin manage survey responses" ON public.survey_responses;
+DROP POLICY IF EXISTS "Surveyors insert survey responses" ON public.survey_responses;
+
+CREATE POLICY "Surveyors insert survey responses"
+  ON public.survey_responses FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (consent_obtained = true);
+
+CREATE POLICY "Admin manage survey responses"
+  ON public.survey_responses FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.6 Survey Answers Policies
+DROP POLICY IF EXISTS "Admin manage survey answers" ON public.survey_answers;
+DROP POLICY IF EXISTS "Surveyors insert survey answers" ON public.survey_answers;
+
+CREATE POLICY "Surveyors insert survey answers"
+  ON public.survey_answers FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "Admin manage survey answers"
+  ON public.survey_answers FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.7 Schemes Policies
+DROP POLICY IF EXISTS "Public read published schemes" ON public.schemes;
+DROP POLICY IF EXISTS "Admin manage schemes" ON public.schemes;
+
+CREATE POLICY "Public read published schemes"
+  ON public.schemes FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage schemes"
+  ON public.schemes FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.8 Contacts Policies
+DROP POLICY IF EXISTS "Public read published contacts" ON public.contacts;
+DROP POLICY IF EXISTS "Admin manage contacts" ON public.contacts;
+
+CREATE POLICY "Public read published contacts"
+  ON public.contacts FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage contacts"
+  ON public.contacts FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.9 Institutions Policies
+DROP POLICY IF EXISTS "Public read published institutions" ON public.institutions;
+DROP POLICY IF EXISTS "Admin manage institutions" ON public.institutions;
+
+CREATE POLICY "Public read published institutions"
+  ON public.institutions FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage institutions"
+  ON public.institutions FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.10 Businesses Policies
+DROP POLICY IF EXISTS "Public read published businesses" ON public.businesses;
+DROP POLICY IF EXISTS "Admin manage businesses" ON public.businesses;
+
+CREATE POLICY "Public read published businesses"
+  ON public.businesses FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage businesses"
+  ON public.businesses FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.11 Announcements Policies
+DROP POLICY IF EXISTS "Public read published announcements" ON public.announcements;
+DROP POLICY IF EXISTS "Admin manage announcements" ON public.announcements;
+
+CREATE POLICY "Public read published announcements"
+  ON public.announcements FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage announcements"
+  ON public.announcements FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.12 Citizen Feedback Policies
+DROP POLICY IF EXISTS "Public insert citizen feedback" ON public.citizen_feedback;
+DROP POLICY IF EXISTS "Admin manage citizen feedback" ON public.citizen_feedback;
+
+CREATE POLICY "Public insert citizen feedback"
+  ON public.citizen_feedback FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+CREATE POLICY "Admin manage citizen feedback"
+  ON public.citizen_feedback FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+-- 19.13 Clinical Schedules Policies
+DROP POLICY IF EXISTS "Public read published clinical schedules" ON public.clinical_schedules;
+DROP POLICY IF EXISTS "Admin manage clinical schedules" ON public.clinical_schedules;
+
+CREATE POLICY "Public read published clinical schedules"
+  ON public.clinical_schedules FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage clinical schedules"
+  ON public.clinical_schedules FOR ALL
+  TO authenticated
+  USING (is_admin());
+
+-- 19.14 Immunization Schedules Policies
+DROP POLICY IF EXISTS "Public read published immunization schedules" ON public.immunization_schedules;
+DROP POLICY IF EXISTS "Admin manage immunization schedules" ON public.immunization_schedules;
+
+CREATE POLICY "Public read published immunization schedules"
+  ON public.immunization_schedules FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage immunization schedules"
+  ON public.immunization_schedules FOR ALL
+  TO authenticated
+  USING (is_admin());
+
+-- 19.15 Diagnostic Services Policies
+DROP POLICY IF EXISTS "Public read published diagnostic services" ON public.diagnostic_services;
+DROP POLICY IF EXISTS "Admin manage diagnostic services" ON public.diagnostic_services;
+
+CREATE POLICY "Public read published diagnostic services"
+  ON public.diagnostic_services FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+CREATE POLICY "Admin manage diagnostic services"
+  ON public.diagnostic_services FOR ALL
+  TO authenticated
+  USING (is_admin());

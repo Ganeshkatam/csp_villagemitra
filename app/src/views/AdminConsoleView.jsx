@@ -433,7 +433,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
             if (newAccountTempPassword.length < 6) {
                 throw new Error('Temporary password must be at least 6 characters.');
             }
-            const { data, error } = await supabase.rpc('create_admin_user', {
+            const { error } = await supabase.rpc('create_admin_user', {
                 new_email: newAccountEmail.trim(),
                 temp_password: newAccountTempPassword
             });

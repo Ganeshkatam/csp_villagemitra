@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, MapPin, Info, Users, ShieldCheck, HeartPulse, Building2, PhoneCall, Check } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, Check } from 'lucide-react';
 import { supabase, DEFAULT_VILLAGE_ID } from '../lib/supabase';
 import CustomSelect from '../components/CustomSelect';
 import { SURVEY_CANONICAL_OPTIONS } from '../lib/surveyConstants';
 import { validateSurveyForm, buildSurveyPayload } from '../utils/surveyValidation';
-import { uploadSurveyPayload, enqueueOfflineSurvey, getOfflineSurveys, syncOfflineSurveys as syncSurveysFromStorage } from '../features/survey/api/surveyService';
+import { uploadSurveyPayload, enqueueOfflineSurvey, getOfflineSurveysCount, syncOfflineSurveys as syncSurveysFromStorage } from '../features/survey/api/surveyService';
 
 export default function SurveyFormView() {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -15,7 +15,7 @@ export default function SurveyFormView() {
 
     // Verified Localities loaded dynamically from database
     const [localityOptions, setLocalityOptions] = useState([]);
-    const [loadingLocalities, setLoadingLocalities] = useState(true);
+    const [, setLoadingLocalities] = useState(true);
 
     // Complete 21 Logical-Question / 24 Answer-Control State
     const [formData, setFormData] = useState({
@@ -80,8 +80,54 @@ export default function SurveyFormView() {
         { id: 7, name: 'Priorities' }
     ];
 
-    const updateOfflineCount = useCallback(() => {
-        setOfflineCount(getOfflineSurveys().length);
+    // Query verified localities from village_localities table
+    const loadVerifiedLocalities = useCallback(async () => {
+        setLoadingLocalities(true);
+        try {
+            const { data, error } = await supabase
+                .from('village_localities')
+                .select('locality_name')
+                .eq('village_id', DEFAULT_VILLAGE_ID)
+                .eq('status', 'Active')
+                .order('locality_name', { ascending: true });
+
+            if (error) throw error;
+
+            const opts = (data || []).map(row => ({
+                value: row.locality_name,
+                label: row.locality_name
+            }));
+
+            opts.push({ value: 'OTHER', label: 'Other / Specify New Locality' });
+            setLocalityOptions(opts);
+
+            if (opts.length > 0) {
+                setFormData(prev => prev.localityWard ? prev : ({ ...prev, localityWard: opts[0].value }));
+            }
+        } catch (err) {
+            console.warn('Failed to load verified localities, using fallback catalog:', err);
+            const fallbackOpts = [
+                { value: 'East Weavers Colony', label: 'East Weavers Colony' },
+                { value: 'Central Bazaar', label: 'Central Bazaar' },
+                { value: 'North Ward', label: 'North Ward' },
+                { value: 'Harijanawada', label: 'Harijanawada' },
+                { value: 'Main Road', label: 'Main Road' },
+                { value: 'OTHER', label: 'Other / Specify New Locality' }
+            ];
+            setLocalityOptions(fallbackOpts);
+            setFormData(prev => prev.localityWard ? prev : ({ ...prev, localityWard: fallbackOpts[0].value }));
+        } finally {
+            setLoadingLocalities(false);
+        }
+    }, []);
+
+    const updateOfflineCount = useCallback(async () => {
+        try {
+            const count = await getOfflineSurveysCount();
+            setOfflineCount(count);
+        } catch {
+            setOfflineCount(0);
+        }
     }, []);
 
     const syncOfflineSurveys = useCallback(async () => {
@@ -93,7 +139,7 @@ export default function SurveyFormView() {
         setIsSyncing(true);
         try {
             const res = await syncSurveysFromStorage();
-            updateOfflineCount();
+            await updateOfflineCount();
 
             if (res.successCount === 0 && res.remainingCount === 0) {
                 setStatusMsg({ type: 'success', text: 'No pending records to synchronize.' });
@@ -102,13 +148,18 @@ export default function SurveyFormView() {
                     type: 'success',
                     text: `All ${res.successCount} offline survey records verified and synchronized to database.`
                 });
+            } else if (res.deadLetterCount > 0) {
+                setStatusMsg({
+                    type: 'error',
+                    text: `Synchronized ${res.successCount} records. ${res.deadLetterCount} failed validation permanently (dead-letter queue).`
+                });
             } else {
                 setStatusMsg({
                     type: 'warning',
                     text: `Synchronized ${res.successCount} records. ${res.remainingCount} records remain pending.`
                 });
             }
-        } catch (e) {
+        } catch {
             setStatusMsg({ type: 'error', text: 'Synchronization process encountered an error.' });
         } finally {
             setIsSyncing(false);
@@ -131,50 +182,9 @@ export default function SurveyFormView() {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
-    }, [syncOfflineSurveys, updateOfflineCount]);
+    }, [loadVerifiedLocalities, syncOfflineSurveys, updateOfflineCount]);
 
-    // Query verified localities from village_localities table
-    async function loadVerifiedLocalities() {
-        setLoadingLocalities(true);
-        try {
-            const { data, error } = await supabase
-                .from('village_localities')
-                .select('locality_name')
-                .eq('village_id', DEFAULT_VILLAGE_ID)
-                .eq('status', 'Active')
-                .order('locality_name', { ascending: true });
 
-            if (error) throw error;
-
-            const opts = (data || []).map(row => ({
-                value: row.locality_name,
-                label: row.locality_name
-            }));
-
-            opts.push({ value: 'OTHER', label: 'Other / Specify New Locality' });
-            setLocalityOptions(opts);
-
-            if (opts.length > 0 && !formData.localityWard) {
-                setFormData(prev => ({ ...prev, localityWard: opts[0].value }));
-            }
-        } catch (err) {
-            console.warn('Failed to load verified localities, using fallback catalog:', err);
-            const fallbackOpts = [
-                { value: 'East Weavers Colony', label: 'East Weavers Colony' },
-                { value: 'Central Bazaar', label: 'Central Bazaar' },
-                { value: 'North Ward', label: 'North Ward' },
-                { value: 'Harijanawada', label: 'Harijanawada' },
-                { value: 'Main Road', label: 'Main Road' },
-                { value: 'OTHER', label: 'Other / Specify New Locality' }
-            ];
-            setLocalityOptions(fallbackOpts);
-            if (!formData.localityWard) {
-                setFormData(prev => ({ ...prev, localityWard: fallbackOpts[0].value }));
-            }
-        } finally {
-            setLoadingLocalities(false);
-        }
-    }
 
     const handleFieldChange = (fieldName, value) => {
         setFormData(prev => ({ ...prev, [fieldName]: value }));
@@ -262,18 +272,18 @@ export default function SurveyFormView() {
         }
     };
 
-    const saveToOfflineQueue = (payload) => {
+    const saveToOfflineQueue = async (payload) => {
         try {
-            enqueueOfflineSurvey(payload);
-            updateOfflineCount();
+            await enqueueOfflineSurvey(payload);
+            await updateOfflineCount();
             setStatusMsg({
                 type: 'warning',
-                text: `Offline Mode: Survey cached locally (${payload.respondent_code}). Pending synchronization.`
+                text: `Offline Mode: Survey cached in durable vault (${payload.respondent_code}). Pending synchronization.`
             });
             resetForm();
         } catch (e) {
             console.error('Storage error:', e);
-            setStatusMsg({ type: 'error', text: 'Local storage unavailable.' });
+            setStatusMsg({ type: 'error', text: 'Storage vault unavailable.' });
         }
     };
 
