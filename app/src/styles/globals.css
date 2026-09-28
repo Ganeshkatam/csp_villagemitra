@@ -981,7 +981,7 @@ textarea.form-control {
 .ticker-track {
     display: inline-flex;
     white-space: nowrap;
-    animation: tickerScroll 32s linear infinite;
+    animation: tickerScroll 75s linear infinite;
 }
 
 .clean-ticker-bar:hover .ticker-track {
