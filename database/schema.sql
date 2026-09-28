@@ -78,6 +78,57 @@ CREATE TABLE IF NOT EXISTS public.survey_questions (
 
 CREATE INDEX IF NOT EXISTS idx_survey_questions_order ON public.survey_questions(display_order);
 
+INSERT INTO public.survey_questions (question_code, section, question_text, question_type, options, required, display_order)
+VALUES
+    ('D1', 'Demographics', 'Age Group of Respondent', 'single_choice', 
+     '[{"value": "18-25", "label": "18 to 25 years"}, {"value": "26-40", "label": "26 to 40 years"}, {"value": "41-60", "label": "41 to 60 years"}, {"value": "Above-60", "label": "Above 60 years"}]'::jsonb, true, 1),
+    ('D2', 'Demographics', 'Gender', 'single_choice', 
+     '[{"value": "Male", "label": "Male"}, {"value": "Female", "label": "Female"}, {"value": "Other", "label": "Other / Prefer not to say"}]'::jsonb, true, 2),
+    ('D3', 'Demographics', 'Primary Occupation of Household Head', 'single_choice', 
+     '[{"value": "Agriculture", "label": "Farming / Agriculture"}, {"value": "Agricultural-Labor", "label": "Farm Labor / Daily Wage Work"}, {"value": "Artisan-Trades", "label": "Local Trades (Weaver, Carpenter, Tailor)"}, {"value": "Small-Business", "label": "Shopkeeper / Small Business / Vendor"}, {"value": "Salaried-Service", "label": "Salaried Job (Private or Government)"}, {"value": "Other", "label": "Other Work"}]'::jsonb, true, 3),
+    ('D4', 'Demographics', 'Highest Education Level in Household', 'single_choice', 
+     '[{"value": "Non-literate", "label": "No formal schooling"}, {"value": "Primary", "label": "Primary School (Class 1 to 5)"}, {"value": "Secondary", "label": "High School (Class 6 to 10)"}, {"value": "Higher-Secondary", "label": "Intermediate / 12th Class"}, {"value": "Graduate-Diploma", "label": "Degree / Diploma / Higher"}]'::jsonb, true, 4),
+    ('D5', 'Demographics', 'Total Household Members', 'number', NULL, false, 5),
+    ('D6', 'Demographics', 'Ration Card Category Held', 'single_select',
+     '[{"value": "White-BPL-Card", "label": "White Ration Card (Rice Card / BPL)"}, {"value": "Pink-APL-Card", "label": "Pink Ration Card (APL)"}, {"value": "No-Card", "label": "No Ration Card"}]'::jsonb, true, 6),
+    ('TECH1', 'Digital Infrastructure', 'Working Smartphone Availability in Household', 'single_choice', 
+     '[{"value": "Smartphone-Available", "label": "Yes, have a smartphone"}, {"value": "Basic-Phone-Only", "label": "Basic keypad phone only"}, {"value": "No-Phone", "label": "No phone in the house"}]'::jsonb, true, 7),
+    ('TECH2', 'Digital Infrastructure', 'Primary Internet Access Mode', 'single_choice', 
+     '[{"value": "Mobile-Data-4G-5G", "label": "Mobile data (4G / 5G)"}, {"value": "Broadband-WiFi", "label": "Home Wi-Fi / Broadband"}, {"value": "Intermittent-2G-3G", "label": "Slow or weak mobile signal (2G / 3G)"}, {"value": "No-Internet", "label": "No internet access at home"}]'::jsonb, true, 8),
+    ('TECH3', 'Digital Infrastructure', 'Independent Digital Browsing & Reading', 'single_choice', 
+     '[{"value": "Independent", "label": "Can use websites and read online on my own"}, {"value": "Needs-Assistance", "label": "Need help from family or youth to read online"}, {"value": "Relies-on-Cafes", "label": "Go to internet centers or CSC for online work"}]'::jsonb, true, 9),
+    ('SCH1', 'Welfare Schemes', 'Primary Source for Learning About Welfare Schemes', 'single_choice', 
+     '[{"value": "Panchayat-Notices", "label": "Panchayat notice board and announcements"}, {"value": "Word-of-Mouth", "label": "Neighbors and friends"}, {"value": "CSC-Cafe", "label": "Internet center (CSC) / Net cafe"}, {"value": "Official-Web", "label": "Official government websites"}, {"value": "Social-Media", "label": "Social media (WhatsApp, YouTube)"}]'::jsonb, true, 10),
+    ('SCH2', 'Welfare Schemes', 'Biggest Challenge When Applying for Schemes', 'single_choice', 
+     '[{"value": "Unknown-Eligibility-Docs", "label": "Do not know required papers or rules in advance"}, {"value": "Repeated-Office-Visits", "label": "Having to visit offices multiple times for missing papers"}, {"value": "Unsure-Official-Link", "label": "Not sure if an online website link is real"}, {"value": "Intermediary-Fees", "label": "Having to pay money to middlemen for information"}, {"value": "No-Hurdle", "label": "No difficulty faced"}]'::jsonb, true, 11),
+    ('SCH3', 'Welfare Schemes', 'Confusion Identifying Official Government Domains (.gov.in)', 'single_choice', 
+     '[{"value": "Frequently-Confused", "label": "Often confused by private or unofficial websites"}, {"value": "Sometimes-Unsure", "label": "Sometimes unsure if a link is genuine"}, {"value": "Easily-Distinguish", "label": "Can easily tell official government (.gov.in) websites"}, {"value": "Do-Not-Use", "label": "Do not use online government websites"}]'::jsonb, true, 12),
+    ('SCH4', 'Welfare Schemes', 'Active Government Welfare Scheme Entitlements', 'multi_select',
+     '[{"value": "PM-KISAN", "label": "PM-KISAN / Rythu Bharosa"}, {"value": "Pension-Kanuka", "label": "YSR Pension Kanuka (Old Age / Widow / Disability)"}, {"value": "Amma-Vodi", "label": "Amma Vodi / Vidya Deevena"}, {"value": "Aarogyasri", "label": "Dr. YSR Aarogyasri Health Scheme"}, {"value": "None", "label": "None of these schemes"}]'::jsonb, true, 13),
+    ('CON1_Panchayat', 'Emergency Contacts', 'Has Panchayat Secretary / Sarpanch Number Saved', 'single_choice', 
+     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 14),
+    ('CON1_PHC', 'Emergency Contacts', 'Has Primary Health Centre / Ambulance Number Saved', 'single_choice', 
+     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 15),
+    ('CON1_Police', 'Emergency Contacts', 'Has Police Station / Outpost Number Saved', 'single_choice', 
+     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 16),
+    ('CON1_Lineman', 'Emergency Contacts', 'Has Electricity Lineman / Water Operator Number Saved', 'single_choice', 
+     '[{"value": "Yes", "label": "Yes"}, {"value": "No", "label": "No"}]'::jsonb, true, 17),
+    ('CON2', 'Emergency Contacts', 'How Emergency Contacts Are Looked Up in Crisis', 'single_choice', 
+     '[{"value": "Ask-Neighbors", "label": "Ask neighbors or friends"}, {"value": "Visit-Panchayat", "label": "Visit Panchayat office in person"}, {"value": "Saved-In-Phone", "label": "Already have numbers saved in mobile phone"}, {"value": "Struggle-To-Find", "label": "Hard to find the right number quickly"}]'::jsonb, true, 18),
+    ('HLTH1', 'Healthcare & Education', 'How Doctor Availability at PHC is Checked', 'single_choice', 
+     '[{"value": "Visited-PHC-No-Doctor", "label": "Went to the clinic when urgent, but doctor was not there"}, {"value": "No-Way-To-Check", "label": "No way to check doctor timings in advance"}, {"value": "Regular-Satisfactory", "label": "Clinic is open and doctor is available when needed"}]'::jsonb, true, 19),
+    ('EDU1', 'Healthcare & Education', 'Ease of Obtaining School / Anganwadi Details', 'single_choice', 
+     '[{"value": "Easily-Accessible", "label": "School and Anganwadi details are easy to get"}, {"value": "Scattered-Requires-Visits", "label": "Hard to find details without visiting in person"}, {"value": "No-School-Children", "label": "No school-age children in the house"}]'::jsonb, true, 20),
+    ('INFRA1', 'Community Infrastructure', 'Primary Source of Potable Drinking Water', 'single_select',
+     '[{"value": "Panchayat-RO-Plant", "label": "Panchayat RO Drinking Water Plant"}, {"value": "Borewell-Tap", "label": "Direct Borewell or Tap Water"}, {"value": "Private-Tanker-Can", "label": "Private Water Cans or Tankers"}]'::jsonb, true, 21),
+    ('BIZ1', 'Local Economy', 'How Village Tradespeople (Mechanic, Tailor, Electrician) Are Found', 'single_choice', 
+     '[{"value": "Personal-Contacts", "label": "Ask neighbors or personal contacts"}, {"value": "Market-Inquiry", "label": "Ask around at village shops"}, {"value": "Struggle-To-Find", "label": "Hard to find skilled workers nearby"}]'::jsonb, true, 22),
+    ('BIZ2', 'Local Economy', 'Utility of Verified Village Business & SHG Directory', 'single_choice', 
+     '[{"value": "Very-Helpful", "label": "Very helpful to find local repairers and shops"}, {"value": "Somewhat-Helpful", "label": "Somewhat helpful"}, {"value": "Not-Necessary", "label": "Not needed"}]'::jsonb, true, 23),
+    ('PRIO1', 'Citizen Priorities', 'Top Priority Category for Village Information Portal', 'single_choice', 
+     '[{"value": "Emergency-Contacts", "label": "Emergency phone numbers and clinic contacts"}, {"value": "Welfare-Checklists", "label": "Government schemes list and required documents"}, {"value": "PHC-Timings", "label": "Doctor timings at the primary health centre"}, {"value": "Business-Directory", "label": "Phone numbers of local repairers and shops"}, {"value": "Panchayat-Notices", "label": "Panchayat announcements and meeting updates"}, {"value": "School-Anganwadi", "label": "School and Anganwadi timings and updates"}]'::jsonb, true, 24)
+ON CONFLICT (question_code) DO NOTHING;
+
 -- ==============================================================================
 -- 6. PSEUDONYMOUS HOUSEHOLD INTERVIEWS
 -- ==============================================================================
