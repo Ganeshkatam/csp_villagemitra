@@ -3,6 +3,12 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
+// Automatically reload when a new production build deployment renders cached module chunks stale
+window.addEventListener('vite:preloadError', (event) => {
+    event.preventDefault();
+    window.location.reload();
+});
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
