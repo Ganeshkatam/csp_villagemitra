@@ -5,7 +5,7 @@ import { useAppContext } from '../../app/providers';
 import { createTelLink } from '../../utils/phone';
 
 export function Footer() {
-    const { t } = useAppContext();
+    const { t, isAdmin } = useAppContext();
 
     const emergencyHelplines = [
         { id: '108', name: '108 Emergency Ambulance', phone: '108' },
@@ -67,7 +67,9 @@ export function Footer() {
                             <li><Link to="/feedback">Citizen Feedback</Link></li>
                             <li><Link to="/survey">Household Survey</Link></li>
                             <li><Link to="/dashboard">Analytics Dashboard</Link></li>
-                            <li><Link to="/admin">Administration</Link></li>
+                            {isAdmin && (
+                                <li><Link to="/admin">Administration</Link></li>
+                            )}
                         </ul>
                     </div>
 

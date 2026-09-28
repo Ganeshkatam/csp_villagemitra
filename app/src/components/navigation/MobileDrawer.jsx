@@ -6,7 +6,7 @@ import {
     BarChart3, Lock, LogOut 
 } from 'lucide-react';
 
-export function MobileDrawer({ isOpen, onClose, user, onSignOut }) {
+export function MobileDrawer({ isOpen, onClose, user, isAdmin, onSignOut }) {
     const drawerRef = useRef(null);
 
     useEffect(() => {
@@ -41,7 +41,7 @@ export function MobileDrawer({ isOpen, onClose, user, onSignOut }) {
         { to: '/feedback', label: 'Citizen Feedback', icon: <MessageSquare size={18} /> },
         { to: '/survey', label: 'Field Survey Form', icon: <ClipboardList size={18} /> },
         { to: '/dashboard', label: 'Survey Analytics', icon: <BarChart3 size={18} /> },
-        { to: '/admin', label: user ? 'Admin Console' : 'Admin Login', icon: <Lock size={18} /> }
+        ...(isAdmin ? [{ to: '/admin', label: 'Admin Console', icon: <Lock size={18} /> }] : [])
     ];
 
     return (
