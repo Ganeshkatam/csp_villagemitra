@@ -200,18 +200,18 @@ export function HomePage() {
                         </form>
 
                         {/* Fast Navigation Shortcut Tags */}
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                            <Link to="/schemes" className="badge badge-civic" style={{ textDecoration: 'none', padding: '0.35rem 0.65rem' }}>
-                                <FileText size={14} style={{ marginRight: '4px' }} /> Welfare Schemes
+                        <div className="hero-pills-row">
+                            <Link to="/schemes" className="hero-quick-pill hero-pill-schemes">
+                                <FileText size={15} /> Welfare Schemes
                             </Link>
-                            <Link to="/contacts" className="badge badge-alert" style={{ textDecoration: 'none', padding: '0.35rem 0.65rem' }}>
-                                <Phone size={14} style={{ marginRight: '4px' }} /> Verified Contacts
+                            <Link to="/contacts" className="hero-quick-pill hero-pill-contacts">
+                                <Phone size={15} /> Emergency Contacts
                             </Link>
-                            <Link to="/healthcare" className="badge badge-verified" style={{ textDecoration: 'none', padding: '0.35rem 0.65rem' }}>
-                                <HeartPulse size={14} style={{ marginRight: '4px' }} /> PHC Healthcare
+                            <Link to="/healthcare" className="hero-quick-pill hero-pill-health">
+                                <HeartPulse size={15} /> PHC Healthcare
                             </Link>
-                            <Link to="/businesses" className="badge badge-warning" style={{ textDecoration: 'none', padding: '0.35rem 0.65rem' }}>
-                                <Store size={14} style={{ marginRight: '4px' }} /> Local Artisans
+                            <Link to="/businesses" className="hero-quick-pill hero-pill-biz">
+                                <Store size={15} /> Local Artisans
                             </Link>
                         </div>
                     </div>
