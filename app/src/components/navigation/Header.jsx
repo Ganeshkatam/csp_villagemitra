@@ -8,7 +8,7 @@ import { createTelLink } from '../../utils/phone';
 import { MobileDrawer } from './MobileDrawer';
 
 export function Header() {
-    const { lang, toggleLang, textZoom, setTextZoom, user, isAdmin, t } = useAppContext();
+    const { lang, toggleLang, textZoom, setTextZoom, user, t } = useAppContext();
     const [helplines, setHelplines] = useState([]);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const navigate = useNavigate();
@@ -137,11 +137,6 @@ export function Header() {
                         <NavLink to="/dashboard" className={({ isActive }) => `menu-link ${isActive ? 'active' : ''}`}>
                             Analytics
                         </NavLink>
-                        {isAdmin && (
-                            <NavLink to="/admin" className={({ isActive }) => `menu-link admin-btn ${isActive ? 'active' : ''}`}>
-                                Admin Console
-                            </NavLink>
-                        )}
                         {user && (
                             <button
                                 type="button"
@@ -184,7 +179,6 @@ export function Header() {
                 isOpen={drawerOpen} 
                 onClose={() => setDrawerOpen(false)} 
                 user={user}
-                isAdmin={isAdmin}
                 onSignOut={handleSignOut}
             />
         </header>
