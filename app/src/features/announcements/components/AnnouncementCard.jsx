@@ -11,21 +11,17 @@ export function AnnouncementCard({ announcement, lang }) {
     const isPast = announcement.event_date && announcement.event_date < todayStr;
     const isToday = announcement.event_date && announcement.event_date === todayStr;
 
-    const displayImage = announcement.image_url || '/images/rural_village_illustration.jpg';
-
     return (
         <div className={`civic-card ${isPast ? 'opacity-75' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="civic-card-media">
-                <img 
-                    src={displayImage} 
-                    alt={announcement.title} 
-                    loading="lazy"
-                    onError={(e) => {
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = '/images/rural_village_illustration.jpg';
-                    }}
-                />
-            </div>
+            {announcement.image_url && (
+                <div className="civic-card-media">
+                    <img 
+                        src={announcement.image_url} 
+                        alt={announcement.title} 
+                        loading="lazy"
+                    />
+                </div>
+            )}
             <div style={{ flex: 1 }}>
                 <div className="card-header-row">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
