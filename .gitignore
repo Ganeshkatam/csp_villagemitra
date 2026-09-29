@@ -29,3 +29,7 @@ pnpm-debug.log*
 Thumbs.db
 *.swp
 *.swo
+
+# Supabase CLI temporary files
+supabase/.temp/
+

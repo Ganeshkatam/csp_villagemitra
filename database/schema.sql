@@ -1616,4 +1616,21 @@ GRANT EXECUTE ON FUNCTION public.search_normalization(TEXT) TO anon, authenticat
 GRANT EXECUTE ON FUNCTION public.search_portal(TEXT, UUID, INT) TO anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.search_aliases TO anon, authenticated, service_role;
 
+-- 21. Search Aliases Row Level Security
+ALTER TABLE public.search_aliases ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public read published search aliases" ON public.search_aliases;
+CREATE POLICY "Public read published search aliases"
+  ON public.search_aliases FOR SELECT
+  TO anon, authenticated
+  USING (status = 'published');
+
+DROP POLICY IF EXISTS "Admin manage search aliases" ON public.search_aliases;
+CREATE POLICY "Admin manage search aliases"
+  ON public.search_aliases FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+
+
 
