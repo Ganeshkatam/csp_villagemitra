@@ -33,24 +33,36 @@ export async function searchPortal(query, options = {}) {
         signal
     } = options;
 
-    const rpcPromise = supabase.rpc('search_portal', {
+    if (signal?.aborted) {
+        throw new DOMException('This operation was aborted', 'AbortError');
+    }
+
+    let queryBuilder = supabase.rpc('search_portal', {
         p_query: cleanQuery,
         p_village_id: villageId,
         p_limit: Math.min(Math.max(limit, 1), 50)
     });
 
-    if (signal) {
-        if (signal.aborted) {
-            throw new DOMException('Aborted', 'AbortError');
-        }
-        signal.addEventListener('abort', () => {
-            // Signal aborted
-        });
+    if (signal && typeof queryBuilder.abortSignal === 'function') {
+        queryBuilder = queryBuilder.abortSignal(signal);
     }
 
-    const { data, error } = await rpcPromise;
+    let result;
+    try {
+        result = await queryBuilder;
+    } catch (err) {
+        if (err?.name === 'AbortError' || signal?.aborted) {
+            throw new DOMException('This operation was aborted', 'AbortError');
+        }
+        throw err;
+    }
+
+    const { data, error } = result;
 
     if (error) {
+        if (signal?.aborted || error?.message?.includes('aborted') || error?.name === 'AbortError') {
+            throw new DOMException('This operation was aborted', 'AbortError');
+        }
         console.error('search_portal RPC error:', error);
         throw error;
     }

@@ -13,7 +13,7 @@ test('Database migrations are well-formed and chronologically ordered', () => {
     assert.ok(fs.existsSync(migrationsDir), 'supabase/migrations directory must exist');
 
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
-    assert.strictEqual(files.length, 12, 'Expected exactly 12 migration files matching schema_migrations');
+    assert.strictEqual(files.length, 13, 'Expected exactly 13 migration files matching schema_migrations');
 
     const expectedSequence = [
         '20260901000000_initial_schema.sql',
@@ -27,7 +27,8 @@ test('Database migrations are well-formed and chronologically ordered', () => {
         '20260928170246_phase_0_villages_policy_consolidation.sql',
         '20260928173138_atomic_survey_ingestion_and_idempotency.sql',
         '20260928173256_add_citizen_feedback_abuse_guards.sql',
-        '20260928180000_server_enforced_anti_abuse_and_survey_hardening.sql'
+        '20260928180000_server_enforced_anti_abuse_and_survey_hardening.sql',
+        '20260930010000_create_server_authoritative_search_portal.sql'
     ];
 
     assert.deepStrictEqual(files, expectedSequence, 'Migration sequence must match expected chronological baseline');
@@ -52,7 +53,7 @@ test('Database migrations are well-formed and chronologically ordered', () => {
     }
 });
 
-test('Consolidated schema.sql contains all 14 required tables and security controls', () => {
+test('Consolidated schema.sql contains all 16 required tables and security controls', () => {
     const schemaPath = path.join(rootDir, 'database', 'schema.sql');
     assert.ok(fs.existsSync(schemaPath), 'database/schema.sql must exist');
 
@@ -73,7 +74,8 @@ test('Consolidated schema.sql contains all 14 required tables and security contr
         'citizen_feedback',
         'clinical_schedules',
         'immunization_schedules',
-        'diagnostic_services'
+        'diagnostic_services',
+        'search_aliases'
     ];
 
     for (const table of requiredTables) {
@@ -100,6 +102,16 @@ test('Consolidated schema.sql contains all 14 required tables and security contr
     assert.ok(
         content.includes('FUNCTION public.submit_survey('),
         'schema.sql must define submit_survey RPC'
+    );
+
+    // Verify search_portal RPC and search_normalization function
+    assert.ok(
+        content.includes('FUNCTION public.search_portal('),
+        'schema.sql must define search_portal RPC'
+    );
+    assert.ok(
+        content.includes('FUNCTION public.search_normalization('),
+        'schema.sql must define search_normalization function'
     );
 
     // Verify citizen feedback abuse prevention check constraint and server trigger

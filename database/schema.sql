@@ -1255,33 +1255,62 @@ IMMUTABLE
 STRICT
 SET search_path TO 'public', 'pg_temp'
 AS $$
-    SELECT trim(regexp_replace(lower(p_text), '[\s\-_+()/,.:]+', ' ', 'g'));
+    SELECT trim(regexp_replace(lower(p_text), '[\s\-_+()/,.:;!?''"]+', ' ', 'g'));
 $$;
+
+CREATE TABLE IF NOT EXISTS public.search_aliases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    alias_key TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_url TEXT NOT NULL,
+    target_title TEXT NOT NULL,
+    target_title_te TEXT,
+    target_category TEXT NOT NULL,
+    relevance_boost NUMERIC NOT NULL DEFAULT 0.95,
+    source TEXT NOT NULL DEFAULT 'Grama Panchayat Verified Keyword',
+    status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('draft', 'verified', 'published')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_aliases_key ON public.search_aliases(alias_key);
+CREATE INDEX IF NOT EXISTS idx_search_aliases_key_trgm ON public.search_aliases USING gin (alias_key gin_trgm_ops);
 
 CREATE INDEX IF NOT EXISTS idx_schemes_name_trgm ON public.schemes USING gin (name gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_schemes_name_te_trgm ON public.schemes USING gin (name_te gin_trgm_ops) WHERE name_te IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_schemes_norm_name_trgm ON public.schemes USING gin ((public.search_normalization(name)) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_schemes_status_village ON public.schemes(status, village_id);
 
 CREATE INDEX IF NOT EXISTS idx_contacts_name_trgm ON public.contacts USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_contacts_name_te_trgm ON public.contacts USING gin (name_te gin_trgm_ops) WHERE name_te IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_contacts_norm_name_trgm ON public.contacts USING gin ((public.search_normalization(name)) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_contacts_phone ON public.contacts(phone);
-CREATE INDEX IF NOT EXISTS idx_contacts_status_village ON public.contacts(status, village_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_status_village ON public.contacts(status, village_id, jurisdiction);
 
 CREATE INDEX IF NOT EXISTS idx_institutions_name_trgm ON public.institutions USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_institutions_name_te_trgm ON public.institutions USING gin (name_te gin_trgm_ops) WHERE name_te IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_institutions_norm_name_trgm ON public.institutions USING gin ((public.search_normalization(name)) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_institutions_status_village ON public.institutions(status, village_id, type);
 
 CREATE INDEX IF NOT EXISTS idx_businesses_name_trgm ON public.businesses USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_businesses_name_te_trgm ON public.businesses USING gin (name_te gin_trgm_ops) WHERE name_te IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_businesses_norm_name_trgm ON public.businesses USING gin ((public.search_normalization(name)) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_businesses_status_village ON public.businesses(status, village_id);
 
 CREATE INDEX IF NOT EXISTS idx_announcements_title_trgm ON public.announcements USING gin (title gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_announcements_title_te_trgm ON public.announcements USING gin (title_te gin_trgm_ops) WHERE title_te IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_announcements_norm_title_trgm ON public.announcements USING gin ((public.search_normalization(title)) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_announcements_status_village ON public.announcements(status, village_id);
 
 CREATE INDEX IF NOT EXISTS idx_clinical_schedules_role_trgm ON public.clinical_schedules USING gin (doctor_role gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_clinical_schedules_role_te_trgm ON public.clinical_schedules USING gin (doctor_role_te gin_trgm_ops) WHERE doctor_role_te IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_clinical_schedules_status ON public.clinical_schedules(status, village_id);
 
 CREATE INDEX IF NOT EXISTS idx_immunization_schedules_name_trgm ON public.immunization_schedules USING gin (session_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_immunization_schedules_name_te_trgm ON public.immunization_schedules USING gin (session_name_te gin_trgm_ops) WHERE session_name_te IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_immunization_schedules_status ON public.immunization_schedules(status, village_id);
 
 CREATE INDEX IF NOT EXISTS idx_diagnostic_services_name_trgm ON public.diagnostic_services USING gin (test_name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_diagnostic_services_name_te_trgm ON public.diagnostic_services USING gin (test_name_te gin_trgm_ops) WHERE test_name_te IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_diagnostic_services_status ON public.diagnostic_services(status, village_id);
 
 CREATE OR REPLACE FUNCTION public.search_portal(
@@ -1312,6 +1341,8 @@ DECLARE
     v_digits_q TEXT;
     v_limit INT;
     v_effective_village UUID;
+    v_tsq tsquery;
+    v_has_tsq BOOLEAN := false;
 BEGIN
     IF p_query IS NULL OR length(trim(p_query)) = 0 THEN
         RETURN;
@@ -1328,8 +1359,34 @@ BEGIN
     v_limit := LEAST(GREATEST(COALESCE(p_limit, 20), 1), 50);
     v_effective_village := COALESCE(p_village_id, '00000000-0000-0000-0000-000000000001'::uuid);
 
+    BEGIN
+        v_tsq := plainto_tsquery('simple', v_clean_q);
+        v_has_tsq := (v_tsq IS NOT NULL AND v_tsq::text <> '');
+    EXCEPTION WHEN OTHERS THEN
+        v_has_tsq := false;
+    END;
+
     RETURN QUERY
-    WITH candidates AS (
+    WITH raw_candidates AS (
+        SELECT
+            sa.target_type AS entity_type,
+            sa.id AS entity_id,
+            sa.target_title AS title,
+            sa.target_title_te AS title_te,
+            ('Verified civic service shortcut for "' || sa.alias_key || '"') AS subtitle,
+            sa.target_category AS category,
+            sa.target_url AS url,
+            CURRENT_DATE AS verified_at,
+            NULL::TEXT AS phone,
+            (sa.target_title || ' ' || COALESCE(sa.target_title_te, '') || ' ' || sa.alias_key) AS search_text,
+            true AS is_alias_match
+        FROM public.search_aliases sa
+        WHERE sa.status = 'published'
+          AND (v_norm_q = public.search_normalization(sa.alias_key) 
+               OR public.search_normalization(sa.alias_key) LIKE ('%' || v_norm_q || '%'))
+
+        UNION ALL
+
         SELECT 
             'scheme'::TEXT AS entity_type,
             s.id AS entity_id,
@@ -1338,19 +1395,10 @@ BEGIN
             substring(s.description from 1 for 180) AS subtitle,
             s.category AS category,
             ('/schemes/' || s.id::text) AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(s.name) = v_norm_q OR (s.name_te IS NOT NULL AND public.search_normalization(s.name_te) = v_norm_q) THEN 1.00
-                    WHEN public.search_normalization(s.name) LIKE (v_norm_q || '%') OR (s.name_te IS NOT NULL AND public.search_normalization(s.name_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(s.name) LIKE ('%' || v_norm_q || '%') OR (s.name_te IS NOT NULL AND public.search_normalization(s.name_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN public.search_normalization(s.category) LIKE ('%' || v_norm_q || '%') THEN 0.60
-                    WHEN public.search_normalization(s.description) LIKE ('%' || v_norm_q || '%') THEN 0.40
-                    WHEN similarity(s.name, v_clean_q) > 0.25 THEN (0.25 + (similarity(s.name, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             s.verified_on AS verified_at,
-            NULL::TEXT AS phone
+            NULL::TEXT AS phone,
+            (s.name || ' ' || COALESCE(s.name_te, '') || ' ' || s.category || ' ' || s.description) AS search_text,
+            false AS is_alias_match
         FROM public.schemes s
         WHERE s.status = 'published'
           AND s.village_id = v_effective_village
@@ -1365,23 +1413,15 @@ BEGIN
             COALESCE(c.designation, c.category) AS subtitle,
             c.category AS category,
             ('/contacts/' || lower(replace(c.category, ' ', '-'))) AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(c.name) = v_norm_q OR (c.name_te IS NOT NULL AND public.search_normalization(c.name_te) = v_norm_q) THEN 1.00
-                    WHEN length(v_digits_q) >= 3 AND c.phone IS NOT NULL AND regexp_replace(c.phone, '\D', '', 'g') = v_digits_q THEN 0.95
-                    WHEN public.search_normalization(c.name) LIKE (v_norm_q || '%') OR (c.name_te IS NOT NULL AND public.search_normalization(c.name_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(c.name) LIKE ('%' || v_norm_q || '%') OR (c.name_te IS NOT NULL AND public.search_normalization(c.name_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN length(v_digits_q) >= 3 AND c.phone IS NOT NULL AND regexp_replace(c.phone, '\D', '', 'g') LIKE ('%' || v_digits_q || '%') THEN 0.70
-                    WHEN public.search_normalization(c.category) LIKE ('%' || v_norm_q || '%') OR (c.designation IS NOT NULL AND public.search_normalization(c.designation) LIKE ('%' || v_norm_q || '%')) THEN 0.60
-                    WHEN similarity(c.name, v_clean_q) > 0.25 THEN (0.25 + (similarity(c.name, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             c.verified_on AS verified_at,
-            c.phone AS phone
+            c.phone AS phone,
+            (c.name || ' ' || COALESCE(c.name_te, '') || ' ' || c.category || ' ' || COALESCE(c.designation, '') || ' ' || COALESCE(c.phone, '')) AS search_text,
+            false AS is_alias_match
         FROM public.contacts c
         WHERE c.status = 'published'
-          AND c.village_id = v_effective_village
+          AND (c.village_id = v_effective_village 
+               OR c.category = 'Emergency' 
+               OR c.jurisdiction IN ('State', 'District', 'Mandal', 'Universal'))
 
         UNION ALL
 
@@ -1393,19 +1433,10 @@ BEGIN
             COALESCE(i.services, i.timings) AS subtitle,
             'Healthcare Facility'::TEXT AS category,
             ('/healthcare/' || i.id::text) AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(i.name) = v_norm_q OR (i.name_te IS NOT NULL AND public.search_normalization(i.name_te) = v_norm_q) THEN 1.00
-                    WHEN v_norm_q IN ('phc', 'health', 'hospital', 'clinic', 'ఆరోగ్య', 'పీహెచ్‌సీ', 'ఆసుపత్రి') THEN 0.90
-                    WHEN public.search_normalization(i.name) LIKE (v_norm_q || '%') OR (i.name_te IS NOT NULL AND public.search_normalization(i.name_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(i.name) LIKE ('%' || v_norm_q || '%') OR (i.name_te IS NOT NULL AND public.search_normalization(i.name_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN public.search_normalization(i.services) LIKE ('%' || v_norm_q || '%') THEN 0.40
-                    WHEN similarity(i.name, v_clean_q) > 0.25 THEN (0.25 + (similarity(i.name, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             i.verified_on AS verified_at,
-            i.phone AS phone
+            i.phone AS phone,
+            (i.name || ' ' || COALESCE(i.name_te, '') || ' ' || i.services || ' PHC clinic hospital ఆరోగ్య కేంద్రం') AS search_text,
+            false AS is_alias_match
         FROM public.institutions i
         WHERE i.status = 'published'
           AND i.type = 'PHC'
@@ -1421,19 +1452,10 @@ BEGIN
             COALESCE(i.services, i.timings) AS subtitle,
             'Educational Institution'::TEXT AS category,
             ('/education/' || i.id::text) AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(i.name) = v_norm_q OR (i.name_te IS NOT NULL AND public.search_normalization(i.name_te) = v_norm_q) THEN 1.00
-                    WHEN v_norm_q IN ('school', 'anganwadi', 'mpps', 'zphs', 'బడి', 'పాఠశాల', 'అంగన్‌వాడీ') THEN 0.90
-                    WHEN public.search_normalization(i.name) LIKE (v_norm_q || '%') OR (i.name_te IS NOT NULL AND public.search_normalization(i.name_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(i.name) LIKE ('%' || v_norm_q || '%') OR (i.name_te IS NOT NULL AND public.search_normalization(i.name_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN public.search_normalization(i.services) LIKE ('%' || v_norm_q || '%') THEN 0.40
-                    WHEN similarity(i.name, v_clean_q) > 0.25 THEN (0.25 + (similarity(i.name, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             i.verified_on AS verified_at,
-            i.phone AS phone
+            i.phone AS phone,
+            (i.name || ' ' || COALESCE(i.name_te, '') || ' ' || i.services || ' school anganwadi mpps zphs బడి పాఠశాల') AS search_text,
+            false AS is_alias_match
         FROM public.institutions i
         WHERE i.status = 'published'
           AND i.type = 'Education'
@@ -1449,19 +1471,10 @@ BEGIN
             COALESCE(b.services, b.owner_name) AS subtitle,
             b.category AS category,
             ('/businesses/' || b.id::text) AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(b.name) = v_norm_q OR (b.name_te IS NOT NULL AND public.search_normalization(b.name_te) = v_norm_q) THEN 1.00
-                    WHEN public.search_normalization(b.name) LIKE (v_norm_q || '%') OR (b.name_te IS NOT NULL AND public.search_normalization(b.name_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(b.name) LIKE ('%' || v_norm_q || '%') OR (b.name_te IS NOT NULL AND public.search_normalization(b.name_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN public.search_normalization(b.category) LIKE ('%' || v_norm_q || '%') THEN 0.60
-                    WHEN public.search_normalization(b.services) LIKE ('%' || v_norm_q || '%') THEN 0.40
-                    WHEN similarity(b.name, v_clean_q) > 0.25 THEN (0.25 + (similarity(b.name, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             b.verified_on AS verified_at,
-            b.phone AS phone
+            b.phone AS phone,
+            (b.name || ' ' || COALESCE(b.name_te, '') || ' ' || b.category || ' ' || COALESCE(b.services, '') || ' ' || COALESCE(b.owner_name, '')) AS search_text,
+            false AS is_alias_match
         FROM public.businesses b
         WHERE b.status = 'published'
           AND b.village_id = v_effective_village
@@ -1476,19 +1489,10 @@ BEGIN
             substring(a.description from 1 for 180) AS subtitle,
             a.category AS category,
             ('/announcements/' || a.id::text) AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(a.title) = v_norm_q OR (a.title_te IS NOT NULL AND public.search_normalization(a.title_te) = v_norm_q) THEN 1.00
-                    WHEN public.search_normalization(a.title) LIKE (v_norm_q || '%') OR (a.title_te IS NOT NULL AND public.search_normalization(a.title_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(a.title) LIKE ('%' || v_norm_q || '%') OR (a.title_te IS NOT NULL AND public.search_normalization(a.title_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN public.search_normalization(a.category) LIKE ('%' || v_norm_q || '%') THEN 0.60
-                    WHEN public.search_normalization(a.description) LIKE ('%' || v_norm_q || '%') THEN 0.40
-                    WHEN similarity(a.title, v_clean_q) > 0.25 THEN (0.25 + (similarity(a.title, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             a.verified_on AS verified_at,
-            NULL::TEXT AS phone
+            NULL::TEXT AS phone,
+            (a.title || ' ' || COALESCE(a.title_te, '') || ' ' || a.category || ' ' || a.description) AS search_text,
+            false AS is_alias_match
         FROM public.announcements a
         WHERE a.status = 'published'
           AND a.village_id = v_effective_village
@@ -1503,19 +1507,10 @@ BEGIN
             (COALESCE(cs.doctor_name, '') || ' • ' || cs.days_active || ' (' || cs.timings || ')') AS subtitle,
             'PHC Duty Roster'::TEXT AS category,
             '/healthcare#clinical'::TEXT AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(cs.doctor_role) = v_norm_q OR (cs.doctor_role_te IS NOT NULL AND public.search_normalization(cs.doctor_role_te) = v_norm_q) THEN 1.00
-                    WHEN cs.doctor_name IS NOT NULL AND public.search_normalization(cs.doctor_name) LIKE ('%' || v_norm_q || '%') THEN 0.90
-                    WHEN public.search_normalization(cs.doctor_role) LIKE (v_norm_q || '%') OR (cs.doctor_role_te IS NOT NULL AND public.search_normalization(cs.doctor_role_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(cs.doctor_role) LIKE ('%' || v_norm_q || '%') OR (cs.doctor_role_te IS NOT NULL AND public.search_normalization(cs.doctor_role_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN v_norm_q IN ('doctor', 'opd', 'duty', 'clinic', 'డాక్టర్', 'వైద్యులు') THEN 0.70
-                    WHEN similarity(cs.doctor_role, v_clean_q) > 0.25 THEN (0.25 + (similarity(cs.doctor_role, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             cs.verified_on AS verified_at,
-            NULL::TEXT AS phone
+            NULL::TEXT AS phone,
+            (cs.doctor_role || ' ' || COALESCE(cs.doctor_role_te, '') || ' ' || COALESCE(cs.doctor_name, '') || ' ' || cs.days_active || ' doctor clinic opd డాక్టర్') AS search_text,
+            false AS is_alias_match
         FROM public.clinical_schedules cs
         WHERE cs.status = 'published'
           AND cs.village_id = v_effective_village
@@ -1530,19 +1525,10 @@ BEGIN
             (im.vaccines_administered || ' • ' || im.target_cohort || ' at ' || im.venue) AS subtitle,
             'Immunization Schedule'::TEXT AS category,
             '/healthcare#immunization'::TEXT AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(im.session_name) = v_norm_q OR (im.session_name_te IS NOT NULL AND public.search_normalization(im.session_name_te) = v_norm_q) THEN 1.00
-                    WHEN public.search_normalization(im.session_name) LIKE (v_norm_q || '%') OR (im.session_name_te IS NOT NULL AND public.search_normalization(im.session_name_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(im.session_name) LIKE ('%' || v_norm_q || '%') OR (im.session_name_te IS NOT NULL AND public.search_normalization(im.session_name_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN v_norm_q IN ('vaccine', 'vaccination', 'immunization', 'polio', 'టీకా', 'టీకాలు') THEN 0.70
-                    WHEN public.search_normalization(im.vaccines_administered) LIKE ('%' || v_norm_q || '%') THEN 0.50
-                    WHEN similarity(im.session_name, v_clean_q) > 0.25 THEN (0.25 + (similarity(im.session_name, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             im.verified_on AS verified_at,
-            NULL::TEXT AS phone
+            NULL::TEXT AS phone,
+            (im.session_name || ' ' || COALESCE(im.session_name_te, '') || ' ' || im.vaccines_administered || ' vaccine vaccination polio టీకా') AS search_text,
+            false AS is_alias_match
         FROM public.immunization_schedules im
         WHERE im.status = 'published'
           AND im.village_id = v_effective_village
@@ -1557,41 +1543,77 @@ BEGIN
             (ds.sample_type || ' • TAT: ' || ds.turnaround_time || ' • ' || ds.fee) AS subtitle,
             ds.category AS category,
             '/healthcare#diagnostics'::TEXT AS url,
-            ROUND(CAST(
-                CASE 
-                    WHEN public.search_normalization(ds.test_name) = v_norm_q OR (ds.test_name_te IS NOT NULL AND public.search_normalization(ds.test_name_te) = v_norm_q) THEN 1.00
-                    WHEN public.search_normalization(ds.test_name) LIKE (v_norm_q || '%') OR (ds.test_name_te IS NOT NULL AND public.search_normalization(ds.test_name_te) LIKE (v_norm_q || '%')) THEN 0.85
-                    WHEN public.search_normalization(ds.test_name) LIKE ('%' || v_norm_q || '%') OR (ds.test_name_te IS NOT NULL AND public.search_normalization(ds.test_name_te) LIKE ('%' || v_norm_q || '%')) THEN 0.75
-                    WHEN v_norm_q IN ('test', 'lab', 'blood', 'diagnostics', 'పరీక్ష', 'ల్యాబ్', 'రక్త పరీక్ష') THEN 0.70
-                    WHEN public.search_normalization(ds.category) LIKE ('%' || v_norm_q || '%') THEN 0.60
-                    WHEN similarity(ds.test_name, v_clean_q) > 0.25 THEN (0.25 + (similarity(ds.test_name, v_clean_q) * 0.25))
-                    ELSE 0.00
-                END AS NUMERIC
-            ), 2) AS score,
             ds.verified_on AS verified_at,
-            NULL::TEXT AS phone
+            NULL::TEXT AS phone,
+            (ds.test_name || ' ' || COALESCE(ds.test_name_te, '') || ' ' || ds.category || ' lab test blood diagnostic పరీక్ష ల్యాబ్') AS search_text,
+            false AS is_alias_match
         FROM public.diagnostic_services ds
         WHERE ds.status = 'published'
           AND ds.village_id = v_effective_village
+    ),
+    ranked_candidates AS (
+        SELECT 
+            rc.entity_type,
+            rc.entity_id,
+            rc.title,
+            rc.title_te,
+            rc.subtitle,
+            rc.category,
+            rc.url,
+            rc.verified_at,
+            rc.phone,
+            ROUND(CAST(
+                GREATEST(
+                    CASE WHEN v_norm_q = public.search_normalization(rc.title) 
+                           OR (rc.title_te IS NOT NULL AND v_norm_q = public.search_normalization(rc.title_te)) 
+                         THEN 1.00 ELSE 0.00 END,
+                    CASE WHEN rc.is_alias_match THEN 0.95 ELSE 0.00 END,
+                    CASE WHEN rc.phone IS NOT NULL AND length(v_digits_q) >= 3 
+                              AND regexp_replace(rc.phone, '\D', '', 'g') = v_digits_q 
+                         THEN 0.95 ELSE 0.00 END,
+                    CASE WHEN public.search_normalization(rc.title) LIKE (v_norm_q || '%') 
+                           OR (rc.title_te IS NOT NULL AND public.search_normalization(rc.title_te) LIKE (v_norm_q || '%')) 
+                         THEN 0.85 ELSE 0.00 END,
+                    CASE WHEN v_has_tsq AND to_tsvector('simple', rc.search_text) @@ v_tsq 
+                         THEN LEAST(0.80, 0.50 + (ts_rank(to_tsvector('simple', rc.search_text), v_tsq) * 0.5)) 
+                         ELSE 0.00 END,
+                    CASE WHEN public.search_normalization(rc.title) LIKE ('%' || v_norm_q || '%') 
+                           OR (rc.title_te IS NOT NULL AND public.search_normalization(rc.title_te) LIKE ('%' || v_norm_q || '%')) 
+                         THEN 0.75 ELSE 0.00 END,
+                    CASE WHEN rc.phone IS NOT NULL AND length(v_digits_q) >= 3 
+                              AND regexp_replace(rc.phone, '\D', '', 'g') LIKE ('%' || v_digits_q || '%') 
+                         THEN 0.70 ELSE 0.00 END,
+                    CASE WHEN public.search_normalization(rc.category) LIKE ('%' || v_norm_q || '%') 
+                         THEN 0.60 ELSE 0.00 END,
+                    CASE WHEN rc.subtitle IS NOT NULL AND public.search_normalization(rc.subtitle) LIKE ('%' || v_norm_q || '%') 
+                         THEN 0.40 ELSE 0.00 END,
+                    CASE WHEN similarity(rc.title, v_clean_q) > 0.25 
+                         THEN (0.25 + (similarity(rc.title, v_clean_q) * 0.25)) 
+                         ELSE 0.00 END
+                ) AS NUMERIC
+            ), 2) AS score
+        FROM raw_candidates rc
     )
     SELECT 
-        c.entity_type,
-        c.entity_id,
-        c.title,
-        c.title_te,
-        c.subtitle,
-        c.category,
-        c.url,
-        c.score,
-        c.verified_at,
-        c.phone
-    FROM candidates c
-    WHERE c.score >= 0.25
-    ORDER BY c.score DESC, c.verified_at DESC NULLS LAST, c.title ASC
+        r.entity_type,
+        r.entity_id,
+        r.title,
+        r.title_te,
+        r.subtitle,
+        r.category,
+        r.url,
+        r.score,
+        r.verified_at,
+        r.phone
+    FROM ranked_candidates r
+    WHERE r.score >= 0.25
+    ORDER BY r.score DESC, r.verified_at DESC NULLS LAST, r.title ASC
     LIMIT v_limit;
 END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.search_normalization(TEXT) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.search_portal(TEXT, UUID, INT) TO anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.search_aliases TO anon, authenticated, service_role;
+
 
