@@ -99,6 +99,7 @@ const EducationPage = lazyWithRetry(() => import('../pages/education/EducationPa
 const BusinessesPage = lazyWithRetry(() => import('../pages/businesses/BusinessesPage'));
 const AnnouncementsPage = lazyWithRetry(() => import('../pages/announcements/AnnouncementsPage'));
 const AnnouncementDetailsPage = lazyWithRetry(() => import('../pages/announcements/AnnouncementDetailsPage'));
+const SearchPage = lazyWithRetry(() => import('../pages/search/SearchPage'));
 const VillagePage = lazyWithRetry(() => import('../pages/village/VillagePage'));
 const FeedbackPage = lazyWithRetry(() => import('../pages/feedback/FeedbackPage'));
 const SurveyPage = lazyWithRetry(() => import('../pages/survey/SurveyPage'));
@@ -112,6 +113,7 @@ export const router = createBrowserRouter([
         errorElement: <RootErrorBoundary />,
         children: [
             { index: true, element: withSuspense(HomePage) },
+            { path: 'search', element: withSuspense(SearchPage) },
             { path: 'schemes', element: withSuspense(SchemesPage) },
             // Note: /schemes/category/:category is declared BEFORE /schemes/:schemeSlug for unambiguous routing
             { path: 'schemes/category/:category', element: withSuspense(SchemesPage) },
