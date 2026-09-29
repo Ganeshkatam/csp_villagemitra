@@ -42,7 +42,7 @@ export const feedbackService = {
             status: 'Pending'
         };
 
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             offlineQueue.enqueue({ type: 'feedback', data: payload });
             if (typeof localStorage !== 'undefined') {
                 localStorage.setItem(LAST_SUBMIT_KEY, Date.now().toString());
@@ -99,7 +99,46 @@ export const feedbackService = {
         }
 
         return data || [];
+    },
+
+    /**
+     * Drains pending feedback submissions from offline queue.
+     * Uploads records to citizen_feedback table.
+     * Treats duplicate key on reference_id (code 23505) as already synced.
+     */
+    async syncOfflineFeedback(client = supabase) {
+        return await offlineQueue.flushQueue('feedback', async (feedbackPayload) => {
+            const { error } = await client.from('citizen_feedback').insert([feedbackPayload]);
+            if (error) {
+                // Check if already in database (PostgreSQL 23505 unique violation on reference_id)
+                if (error.code === '23505' || (error.message && error.message.toLowerCase().includes('unique'))) {
+                    return; // Record already inserted, treat as successfully synced
+                }
+                throw new Error(error.message || 'Supabase feedback insertion failed');
+            }
+        });
+    },
+
+    getPendingFeedbackCount() {
+        return offlineQueue.getPendingCount('feedback');
+    },
+
+    getDeadLetterFeedback() {
+        return offlineQueue.getDeadLetterItems('feedback');
+    },
+
+    retryDeadLetterFeedback(id) {
+        offlineQueue.retryDeadLetter(id);
     }
 };
+
+// Automatic background sync on network reconnection
+if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+        feedbackService.syncOfflineFeedback().catch((err) => {
+            console.warn('Background feedback sync note:', err);
+        });
+    });
+}
 
 export default feedbackService;

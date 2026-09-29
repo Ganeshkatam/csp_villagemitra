@@ -34,6 +34,7 @@ export default {
     welcomeTo: "Welcome to",
     portalTagline: "Village Information & Citizen Services Gateway",
     searchPlaceholder: "Search schemes, emergency contacts, schools, doctors, local businesses...",
+    searchSchemesPlaceholder: "Search schemes by name, eligibility, documents, or department...",
     clearBtn: "Clear",
 
     // Filter Pills

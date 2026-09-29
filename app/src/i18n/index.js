@@ -1,5 +1,5 @@
-import en from './en';
-import te from './te';
+import en from './en.js';
+import te from './te.js';
 
 export const I18N_DICT = { en, te };
 

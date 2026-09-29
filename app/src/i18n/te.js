@@ -34,6 +34,7 @@ export default {
     welcomeTo: "స్వాగతం",
     portalTagline: "గ్రామ సమాచార మరియు పౌర సేవా వేదిక",
     searchPlaceholder: "పథకాలు, అత్యవసర నంబర్లు, పీహెచ్‌సీ సమయాలు, పాఠశాలలు శోధించండి...",
+    searchSchemesPlaceholder: "పథకం పేరు, అర్హత, అవసరమైన పత్రాలు లేదా విభాగం ద్వారా శోధించండి...",
     clearBtn: "తొలగించు",
 
     // Filter Pills
