@@ -5,8 +5,8 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
-    allowedHosts: true,
-    host: true
+    host: '127.0.0.1',
+    allowedHosts: ['localhost', '127.0.0.1', '.vercel.app']
   },
   build: {
     rollupOptions: {

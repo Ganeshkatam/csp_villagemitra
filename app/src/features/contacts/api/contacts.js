@@ -11,15 +11,19 @@ export const CONTACT_CATEGORIES = [
 ];
 
 export const contactService = {
-    async getContacts({ category = 'All', search = '' } = {}) {
+    async getContacts({ category = 'All', search = '', limit } = {}) {
         let query = supabase
             .from('contacts')
-            .select('*')
+            .select('id, village_id, name, name_te, designation, designation_te, category, phone, address, availability, source, verified_on, jurisdiction, status')
             .eq('status', 'published')
             .order('name');
 
         if (category && category !== 'All') {
             query = query.eq('category', category);
+        }
+
+        if (limit && Number.isInteger(limit) && limit > 0) {
+            query = query.limit(limit);
         }
 
         const { data, error } = await query;

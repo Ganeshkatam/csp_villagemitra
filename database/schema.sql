@@ -478,6 +478,9 @@ BEGIN
 END;
 $$;
 
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.create_admin_user(new_email text, temp_password text, user_role text DEFAULT 'admin'::text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -646,16 +649,33 @@ AS $$
 DECLARE
     result json;
     total_count int;
+    v_is_admin boolean;
 BEGIN
+    v_is_admin := public.is_admin();
+
     IF filter_ward IS NOT NULL AND filter_ward <> 'ALL' THEN
         SELECT count(*) INTO total_count 
         FROM public.survey_responses 
         WHERE locality_ward = filter_ward;
 
+        -- Enforce k-anonymity privacy protection (k >= 5) for public requests
+        IF total_count < 5 AND NOT v_is_admin THEN
+            RETURN json_build_object(
+                'total_responses', total_count,
+                'summary_generated_at', now(),
+                'filter_ward', filter_ward,
+                'privacy_suppressed', true,
+                'privacy_notice', 'Detailed distributions are suppressed for cohorts under 5 respondents to prevent re-identification.',
+                'question_distributions', '{}'::json,
+                'locality_distribution', json_build_object(filter_ward, total_count)
+            );
+        END IF;
+
         SELECT json_build_object(
             'total_responses', total_count,
             'summary_generated_at', now(),
             'filter_ward', filter_ward,
+            'privacy_suppressed', false,
             'question_distributions', (
                 SELECT coalesce(json_object_agg(question_code, options_data), '{}'::json)
                 FROM (
@@ -808,6 +828,8 @@ CREATE TRIGGER trg_enforce_citizen_feedback_abuse_guards
     BEFORE INSERT ON public.citizen_feedback
     FOR EACH ROW
     EXECUTE FUNCTION public.enforce_citizen_feedback_abuse_guards();
+
+REVOKE EXECUTE ON FUNCTION public.enforce_citizen_feedback_abuse_guards() FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.submit_survey(
     p_village_id UUID,
@@ -986,7 +1008,9 @@ BEGIN
         )
         ON CONFLICT (response_id, question_code, answer_value) DO NOTHING;
         
-        v_inserted_count := v_inserted_count + 1;
+        IF FOUND THEN
+            v_inserted_count := v_inserted_count + 1;
+        END IF;
     END LOOP;
 
     RETURN jsonb_build_object(

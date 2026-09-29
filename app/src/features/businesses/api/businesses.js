@@ -9,15 +9,19 @@ export const BUSINESS_CATEGORIES = [
 ];
 
 export const businessService = {
-    async getBusinesses({ category = 'All', search = '' } = {}) {
+    async getBusinesses({ category = 'All', search = '', limit } = {}) {
         let query = supabase
             .from('businesses')
-            .select('*')
+            .select('id, village_id, name, name_te, category, owner_name, phone, address, timings, services, source, verified_on, status')
             .eq('status', 'published')
             .order('name');
 
         if (category && category !== 'All') {
             query = query.eq('category', category);
+        }
+
+        if (limit && Number.isInteger(limit) && limit > 0) {
+            query = query.limit(limit);
         }
 
         const { data, error } = await query;

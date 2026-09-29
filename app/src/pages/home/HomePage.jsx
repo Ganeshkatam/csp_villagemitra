@@ -51,12 +51,12 @@ export function HomePage() {
 
         Promise.allSettled([
             villageService.getVillageProfile(),
-            announcementService.getAnnouncements(),
-            schemeService.getAllSchemes(),
-            contactService.getContacts(),
-            healthcareService.getHealthcareFacilities(),
-            educationService.getEducationInstitutions(),
-            businessService.getBusinesses()
+            announcementService.getAnnouncements({ limit: 3 }),
+            schemeService.getAllSchemes({ limit: 4 }),
+            contactService.getContacts({ limit: 4 }),
+            healthcareService.getHealthcareFacilities({ limit: 2 }),
+            educationService.getEducationInstitutions({ limit: 2 }),
+            businessService.getBusinesses({ limit: 4 })
         ]).then(([vRes, aRes, sRes, cRes, hRes, eRes, bRes]) => {
             if (!isMounted) return;
             setPageData({

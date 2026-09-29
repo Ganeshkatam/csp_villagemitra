@@ -224,6 +224,16 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
     const bplCardCount = getFrequency('D6', 'White-BPL-Card');
     const _bplCardPct = total > 0 ? Math.round((bplCardCount / total) * 100) : 0;
 
+    // Neutralize CSV formula injection (=, +, -, @, tabs) per security best practices
+    const formatCsvCell = (val) => {
+        if (val === null || val === undefined) return '""';
+        let str = String(val);
+        if (/^[=+\-@\t\r]/.test(str)) {
+            str = "'" + str;
+        }
+        return '"' + str.replace(/"/g, '""') + '"';
+    };
+
     // CSV Export Engine: Exports raw records for authenticated admins, aggregated indicator distributions for public
     const exportCSV = () => {
         if (isAdmin) {
@@ -239,19 +249,19 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
                 const respAnswers = answers.filter(a => a.response_id === r.id);
                 respAnswers.forEach(a => {
                     rows.push([
-                        r.id,
-                        `"${r.respondent_code}"`,
-                        `"${r.interviewer_name}"`,
-                        `"${r.locality_ward || ''}"`,
-                        r.started_at,
-                        r.completed_at,
-                        a.question_code,
-                        `"${a.answer_value}"`
+                        formatCsvCell(r.id),
+                        formatCsvCell(r.respondent_code),
+                        formatCsvCell(r.interviewer_name),
+                        formatCsvCell(r.locality_ward || ''),
+                        formatCsvCell(r.started_at),
+                        formatCsvCell(r.completed_at),
+                        formatCsvCell(a.question_code),
+                        formatCsvCell(a.answer_value)
                     ]);
                 });
             });
 
-            const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+            const csvContent = 'data:text/csv;charset=utf-8,' + [headers.map(formatCsvCell).join(','), ...rows.map(e => e.join(','))].join('\n');
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement('a');
             link.setAttribute('href', encodedUri);
@@ -272,11 +282,16 @@ export default function DashboardView({ initialTab = 'ALL' } = {}) {
             Object.entries(summary.question_distributions).forEach(([qCode, dist]) => {
                 Object.entries(dist).forEach(([val, count]) => {
                     const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                    rows.push([`"${qCode}"`, `"${val}"`, count, `${pct}%`]);
+                    rows.push([
+                        formatCsvCell(qCode),
+                        formatCsvCell(val),
+                        formatCsvCell(count),
+                        formatCsvCell(`${pct}%`)
+                    ]);
                 });
             });
 
-            const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+            const csvContent = 'data:text/csv;charset=utf-8,' + [headers.map(formatCsvCell).join(','), ...rows.map(e => e.join(','))].join('\n');
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement('a');
             link.setAttribute('href', encodedUri);

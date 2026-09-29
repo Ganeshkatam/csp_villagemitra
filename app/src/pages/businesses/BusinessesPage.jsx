@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Store, Search, X, ArrowLeft } from 'lucide-react';
+import { Store, Search, X } from 'lucide-react';
 import { useAppContext } from '../../app/providers';
 import { businessService, BUSINESS_CATEGORIES } from '../../features/businesses/api/businesses';
 import { BusinessCard } from '../../features/businesses/components/BusinessCard';
@@ -129,16 +129,21 @@ export function BusinessesPage() {
                 {!loading && !error && businesses.length === 0 && (
                     <EmptyState
                         title={lang === 'te' 
-                            ? (search || category !== 'All' ? "వ్యాపారాలు కనుగొనబడలేదు" : "గ్రామ వాణిజ్య & చేనేత వివరాలు ధృవీకరణలో ఉన్నాయి")
-                            : (search || category !== 'All' ? "No enterprises found" : "Village Enterprise Directory Under Verification")
+                            ? (search || category !== 'All' ? "వ్యాపారాలు కనుగొనబడలేదు" : "ప్రస్తుతం ధృవీకరించబడిన వ్యాపార జాబితాలు ప్రచురించబడలేదు")
+                            : (search || category !== 'All' ? "No enterprises found" : "No verified local business listings are currently published")
                         }
                         description={lang === 'te'
                             ? (search || category !== 'All' 
                                 ? "మరొక సేవ, యజమాని పేరుతో వెతకండి లేదా అన్ని వర్గాలను ఎంచుకోండి."
-                                : "మోదవలస పరిధిలోని స్థానిక వాణిజ్య మరియు చేనేత రికార్డులు అధికారిక రిజిస్టర్ల ఆధారంగా ధృవీకరించబడుతున్నాయి. డేటా ప్రామాణికత ప్రకారం కల్పిత రికార్డులు ప్రచురించబడవు.")
+                                : "మోదవలస గ్రామ వాణిజ్య మరియు చేతివృత్తుల రికార్డులు కఠినమైన గ్రౌండ్ సర్వే ధృవీకరణలో ఉన్నాయి. మీ గ్రామంలోని స్థానిక వ్యాపారం లేదా వృత్తిని నమోదు చేయడానికి సూచించండి.")
                             : (search || category !== 'All'
                                 ? "Try searching for another service, owner name, or selecting All categories."
-                                : "Local commercial, cooperative, and artisanal listings are being reviewed against attributable village records and ground documentation. In compliance with strict data provenance gates, synthetic or unverified entries are withheld from publication until individual record-level proof is established.")
+                                : "Local commercial, cooperative, and artisanal listings are undergoing ground verification. In compliance with strict data provenance gates, synthetic entries are withheld. You can suggest a local enterprise for inclusion.")
+                        }
+                        action={
+                            <Link to="/feedback" className="btn btn-primary btn-sm">
+                                {lang === 'te' ? "వ్యాపారాన్ని సూచించండి" : "Suggest a Business"}
+                            </Link>
                         }
                     />
                 )}

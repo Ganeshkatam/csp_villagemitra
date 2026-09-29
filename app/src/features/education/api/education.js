@@ -1,14 +1,19 @@
 import { supabase } from '../../../lib/supabase';
 
 export const educationService = {
-    async getEducationInstitutions() {
-        const { data, error } = await supabase
+    async getEducationInstitutions({ limit } = {}) {
+        let query = supabase
             .from('institutions')
-            .select('*')
+            .select('id, village_id, name, name_te, type, address, phone, timings, services, facilities, staff_count, source, verified_on, status')
             .eq('status', 'published')
             .eq('type', 'Education')
             .order('name');
 
+        if (limit && Number.isInteger(limit) && limit > 0) {
+            query = query.limit(limit);
+        }
+
+        const { data, error } = await query;
         if (error) throw error;
         return data || [];
     },
@@ -16,8 +21,9 @@ export const educationService = {
     async getInstitutionById(id) {
         const { data, error } = await supabase
             .from('institutions')
-            .select('*')
+            .select('id, village_id, name, name_te, type, address, phone, timings, services, facilities, staff_count, source, verified_on, status')
             .eq('id', id)
+            .eq('status', 'published')
             .limit(1);
 
         if (error) throw error;

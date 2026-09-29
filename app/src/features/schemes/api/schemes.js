@@ -25,15 +25,19 @@ export const schemeService = {
     getSchemesByCategory
 };
 
-export async function getAllSchemes({ category = 'All', search = '' } = {}) {
+export async function getAllSchemes({ category = 'All', search = '', limit } = {}) {
     let query = supabase
         .from('schemes')
-        .select('*')
+        .select('id, village_id, name, name_te, category, description, eligibility, image_url, verified_on, source, application_process, benefits, exclusions, documents, status')
         .eq('status', 'published')
         .order('name');
 
     if (category && category !== 'All') {
         query = query.eq('category', category);
+    }
+
+    if (limit && Number.isInteger(limit) && limit > 0) {
+        query = query.limit(limit);
     }
 
     const { data, error } = await query;
@@ -57,11 +61,12 @@ export async function getAllSchemes({ category = 'All', search = '' } = {}) {
 export async function getSchemeBySlugOrId(identifier) {
     if (!identifier) return null;
 
-    // Try lookup by ID first if UUID or integer
+    // Try lookup by ID first, strictly enforcing published status
     const { data: byId, error: errId } = await supabase
         .from('schemes')
-        .select('*')
+        .select('id, village_id, name, name_te, category, description, eligibility, image_url, verified_on, source, application_process, benefits, exclusions, documents, status')
         .eq('id', identifier)
+        .eq('status', 'published')
         .limit(1);
 
     if (!errId && byId && byId.length > 0) {
@@ -71,7 +76,7 @@ export async function getSchemeBySlugOrId(identifier) {
     // Fallback: match by name slug
     const { data: all, error: errAll } = await supabase
         .from('schemes')
-        .select('*')
+        .select('id, village_id, name, name_te, category, description, eligibility, image_url, verified_on, source, application_process, benefits, exclusions, documents, status')
         .eq('status', 'published');
 
     if (errAll) throw errAll;
