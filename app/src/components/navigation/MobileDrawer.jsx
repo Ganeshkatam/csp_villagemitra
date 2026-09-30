@@ -3,10 +3,10 @@ import { NavLink } from 'react-router-dom';
 import { 
     X, Home, FileText, Phone, Activity, GraduationCap, 
     Store, Bell, Landmark, MessageSquare, ClipboardList, 
-    BarChart3, LogOut 
+    BarChart3, LogOut, ShieldCheck 
 } from 'lucide-react';
 
-export function MobileDrawer({ isOpen, onClose, user, onSignOut }) {
+export function MobileDrawer({ isOpen, onClose, user, onSignOut, lang }) {
     const drawerRef = useRef(null);
 
     useEffect(() => {
@@ -81,6 +81,18 @@ export function MobileDrawer({ isOpen, onClose, user, onSignOut }) {
                     ))}
 
                     {user && (
+                        <NavLink
+                            to="/admin"
+                            className={({ isActive }) => `drawer-nav-item ${isActive ? 'active' : ''}`}
+                            onClick={onClose}
+                            style={{ fontWeight: 700, color: 'var(--color-blue-700)', background: 'var(--color-blue-50)', marginTop: '0.5rem' }}
+                        >
+                            <ShieldCheck size={18} />
+                            <span>{lang === 'te' ? 'అడ్మిన్ కన్సోల్' : 'Admin Console'}</span>
+                        </NavLink>
+                    )}
+
+                    {user && (
                         <button
                             type="button"
                             className="drawer-nav-item"
@@ -88,7 +100,7 @@ export function MobileDrawer({ isOpen, onClose, user, onSignOut }) {
                                 onSignOut();
                                 onClose();
                             }}
-                            style={{ color: 'var(--color-red-600)', marginTop: '0.5rem', background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
+                            style={{ color: 'var(--color-red-600)', marginTop: '0.25rem', background: 'none', border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer' }}
                         >
                             <LogOut size={18} />
                             <span>Sign Out ({user.email})</span>

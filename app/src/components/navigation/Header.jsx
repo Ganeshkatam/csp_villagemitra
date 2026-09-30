@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
-import { Phone, Menu, X, Landmark, LogOut } from 'lucide-react';
+import { Phone, Menu, X, Landmark, LogOut, ShieldCheck } from 'lucide-react';
 import { useAppContext } from '../../app/providers';
 import { contactService } from '../../features/contacts/api/contacts';
 import { authService } from '../../lib/auth';
@@ -138,6 +138,16 @@ export function Header() {
                             Analytics
                         </NavLink>
                         {user && (
+                            <NavLink
+                                to="/admin"
+                                className={({ isActive }) => `menu-link admin-btn ${isActive ? 'active' : ''}`}
+                                title={lang === 'te' ? 'అడ్మిన్ కన్సోల్' : 'Admin Console'}
+                            >
+                                <ShieldCheck size={14} style={{ marginRight: '5px' }} />
+                                <span>{lang === 'te' ? 'అడ్మిన్' : 'Admin'}</span>
+                            </NavLink>
+                        )}
+                        {user && (
                             <button
                                 type="button"
                                 className="btn btn-ghost btn-sm"
@@ -180,6 +190,7 @@ export function Header() {
                 onClose={() => setDrawerOpen(false)} 
                 user={user}
                 onSignOut={handleSignOut}
+                lang={lang}
             />
         </header>
     );
