@@ -28,7 +28,7 @@ export const schemeService = {
 export async function getAllSchemes({ category = 'All', search = '', limit } = {}) {
     let query = supabase
         .from('schemes')
-        .select('id, village_id, name, name_te, category, description, eligibility, image_url, verified_on, source, application_process, benefits, exclusions, documents, status')
+        .select('id, village_id, name, name_te, category, description, description_te, eligibility, eligibility_te, documents, documents_te, official_url, image_url, verified_on, source, application_process, benefits, exclusions, status')
         .eq('status', 'published')
         .order('name');
 

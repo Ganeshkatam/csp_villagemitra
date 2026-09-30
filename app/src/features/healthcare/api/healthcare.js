@@ -4,7 +4,7 @@ export const healthcareService = {
     async getHealthcareFacilities({ limit } = {}) {
         let query = supabase
             .from('institutions')
-            .select('id, village_id, name, name_te, type, address, phone, timings, services, facilities, staff_count, source, verified_on, status')
+            .select('id, village_id, name, name_te, type, address, phone, timings, services, services_te, image_url, source, verified_on, status')
             .eq('status', 'published')
             .eq('type', 'PHC')
             .order('name');
@@ -90,7 +90,7 @@ export const healthcareService = {
     async getFacilityById(id) {
         const { data, error } = await supabase
             .from('institutions')
-            .select('id, village_id, name, name_te, type, address, phone, timings, services, facilities, staff_count, source, verified_on, status')
+            .select('id, village_id, name, name_te, type, address, phone, timings, services, services_te, image_url, source, verified_on, status')
             .eq('id', id)
             .eq('status', 'published')
             .limit(1);

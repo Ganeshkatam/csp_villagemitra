@@ -4,7 +4,7 @@ export const announcementService = {
     async getAnnouncements({ limit } = {}) {
         let query = supabase
             .from('announcements')
-            .select('id, village_id, title, title_te, category, description, priority, event_date, source, verified_on, image_url, status')
+            .select('id, village_id, title, title_te, category, description, description_te, event_date, source, verified_on, image_url, status')
             .eq('status', 'published')
             .order('event_date', { ascending: true });
 
@@ -20,7 +20,7 @@ export const announcementService = {
     async getAnnouncementById(id) {
         const { data, error } = await supabase
             .from('announcements')
-            .select('id, village_id, title, title_te, category, description, priority, event_date, source, verified_on, image_url, status')
+            .select('id, village_id, title, title_te, category, description, description_te, event_date, source, verified_on, image_url, status')
             .eq('id', id)
             .eq('status', 'published')
             .limit(1);

@@ -12,7 +12,7 @@ export const businessService = {
     async getBusinesses({ category = 'All', search = '', limit } = {}) {
         let query = supabase
             .from('businesses')
-            .select('id, village_id, name, name_te, category, owner_name, phone, address, timings, services, source, verified_on, status')
+            .select('id, village_id, name, name_te, category, owner_name, phone, address, services, services_te, image_url, source, verified_on, status')
             .eq('status', 'published')
             .order('name');
 
