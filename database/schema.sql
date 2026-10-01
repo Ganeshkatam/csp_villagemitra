@@ -488,7 +488,7 @@ SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
 AS $$
 DECLARE
-  v_user_id uuid := gen_random_uuid();
+  v_user_id uuid := extensions.gen_random_uuid();
   v_clean_email text := lower(trim(new_email));
 BEGIN
   IF NOT public.is_admin() THEN
@@ -525,7 +525,7 @@ BEGIN
     'authenticated',
     'authenticated',
     v_clean_email,
-    crypt(temp_password, gen_salt('bf')),
+    extensions.crypt(temp_password, extensions.gen_salt('bf')),
     now(),
     '{"provider":"email","providers":["email"]}'::jsonb,
     jsonb_build_object('role', user_role, 'must_change_password', true),
