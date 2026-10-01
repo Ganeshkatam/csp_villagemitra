@@ -435,12 +435,32 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
             if (newAccountTempPassword.length < 6) {
                 throw new Error('Temporary password must be at least 6 characters.');
             }
+            const cleanEmail = newAccountEmail.trim();
             const { error } = await supabase.rpc('create_admin_user', {
-                new_email: newAccountEmail.trim(),
+                new_email: cleanEmail,
                 temp_password: newAccountTempPassword
             });
             if (error) throw error;
-            notify(`Account created for ${newAccountEmail}. User must change this password on first login.`);
+
+            // Trigger password setup email via configured Supabase SMTP
+            let emailSent = false;
+            try {
+                const { error: resetError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+                    redirectTo: `${window.location.origin}/admin`
+                });
+                if (!resetError) {
+                    emailSent = true;
+                }
+            } catch (emailErr) {
+                console.warn('Could not dispatch setup email via Supabase SMTP:', emailErr);
+            }
+
+            if (emailSent) {
+                notify(`Account created for ${cleanEmail}. Setup email dispatched via SMTP.`);
+            } else {
+                notify(`Account created for ${cleanEmail}. Temporary initial password: ${newAccountTempPassword}`);
+            }
+
             setNewAccountEmail('');
             setNewAccountTempPassword('');
             loadAdminUsers();
@@ -448,6 +468,19 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
             setCreateAccountError(err.message || 'Failed to create user account.');
         } finally {
             setCreateAccountLoading(false);
+        }
+    };
+
+    // Re-dispatch password setup email via configured Supabase SMTP
+    const handleResendSetupEmail = async (targetEmail) => {
+        try {
+            const { error } = await supabase.auth.resetPasswordForEmail(targetEmail, {
+                redirectTo: `${window.location.origin}/admin`
+            });
+            if (error) throw error;
+            notify(`Setup email dispatched via SMTP to ${targetEmail}.`);
+        } catch (err) {
+            notify(`Failed to send email: ${err.message || 'SMTP delivery error'}`);
         }
     };
 
@@ -2643,6 +2676,7 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                     <th>Password Status</th>
                                     <th>Created Date</th>
                                     <th>Last Sign In</th>
+                                    <th style={{ textAlign: 'right' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2672,11 +2706,24 @@ export default function AdminConsoleView({ initialTab = 'profile' } = {}) {
                                             <td style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
                                                 {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString() : 'Never signed in'}
                                             </td>
+                                            <td style={{ textAlign: 'right' }}>
+                                                {u.must_change_password && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn-secondary"
+                                                        style={{ padding: '0.2rem 0.6rem', fontSize: '0.75rem', cursor: 'pointer' }}
+                                                        onClick={() => handleResendSetupEmail(u.email)}
+                                                        title="Resend password setup email via SMTP"
+                                                    >
+                                                        Resend Setup Email
+                                                    </button>
+                                                )}
+                                            </td>
                                         </tr>
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan={4} style={{ textAlign: 'center', color: 'var(--color-text-muted)' }}>No accounts loaded.</td>
+                                        <td colSpan={5} style={{ textAlign: 'center', color: 'var(--color-text-muted)' }}>No accounts loaded.</td>
                                     </tr>
                                 )}
                             </tbody>
