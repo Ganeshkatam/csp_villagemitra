@@ -86,9 +86,9 @@ BEGIN
   );
 
   IF user_role = 'admin' THEN
-    INSERT INTO public.admin_users (user_id, role)
-    VALUES (v_user_id, 'admin')
-    ON CONFLICT (user_id) DO UPDATE SET role = 'admin';
+    INSERT INTO public.admin_users (user_id, email, role)
+    VALUES (v_user_id, v_clean_email, 'admin')
+    ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, role = 'admin';
   END IF;
 
   RETURN jsonb_build_object(
