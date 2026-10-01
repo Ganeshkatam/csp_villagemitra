@@ -26,13 +26,16 @@ jobs:
         run: npm --prefix app ci
 
       - name: Run Linter (oxlint)
-        run: npm run lint
+        run: npm --prefix app run lint
 
-      - name: Run Application & Migration Test Suite
-        run: npm test
+      - name: Run Application Tests
+        run: npm --prefix app test
+
+      - name: Run Migration & Invariant Test Suite
+        run: node --test tests/*.test.js
 
       - name: Build Production Bundle
-        run: npm run build
+        run: npm --prefix app run build
 
       - name: Verify Migration Files and Schema Integrity
         run: |
