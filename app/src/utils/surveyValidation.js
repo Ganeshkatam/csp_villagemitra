@@ -1,4 +1,7 @@
-import { DEFAULT_VILLAGE_ID } from '../lib/supabase.js';
+const env = (typeof import.meta !== 'undefined' && import.meta.env)
+    ? import.meta.env
+    : (typeof process !== 'undefined' ? process.env : {});
+const DEFAULT_VILLAGE_ID = env.VITE_DEFAULT_VILLAGE_ID || '00000000-0000-0000-0000-000000000001';
 
 export const REQUIRED_SURVEY_QUESTIONS = [
     'D1', 'D2', 'D3', 'D4', 'D5', 'D6',
