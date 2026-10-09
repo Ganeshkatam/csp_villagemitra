@@ -13,7 +13,7 @@ test('Database migrations are well-formed and chronologically ordered', () => {
     assert.ok(fs.existsSync(migrationsDir), 'supabase/migrations directory must exist');
 
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
-    assert.strictEqual(files.length, 15, 'Expected exactly 15 migration files matching schema_migrations');
+    assert.strictEqual(files.length, 16, 'Expected exactly 16 migration files matching schema_migrations');
 
     const expectedSequence = [
         '20260901000000_initial_schema.sql',
@@ -30,7 +30,8 @@ test('Database migrations are well-formed and chronologically ordered', () => {
         '20260928180000_server_enforced_anti_abuse_and_survey_hardening.sql',
         '20260930010000_create_server_authoritative_search_portal.sql',
         '20260930020000_harden_security_definer_and_cohort_privacy.sql',
-        '20261001000000_fix_create_admin_user_pgcrypto_resolution.sql'
+        '20261001000000_fix_create_admin_user_pgcrypto_resolution.sql',
+        '20261010000000_create_administrative_audit_trail.sql'
     ].map(f => f.endsWith('.sql') ? f : f + '.sql');
 
     assert.deepStrictEqual(files, expectedSequence, 'Migration sequence must match expected chronological baseline');
@@ -77,7 +78,8 @@ test('Consolidated schema.sql contains all 16 required tables and security contr
         'clinical_schedules',
         'immunization_schedules',
         'diagnostic_services',
-        'search_aliases'
+        'search_aliases',
+        'audit_logs'
     ];
 
     for (const table of requiredTables) {
@@ -124,6 +126,24 @@ test('Consolidated schema.sql contains all 16 required tables and security contr
     assert.ok(
         content.includes('enforce_citizen_feedback_abuse_guards'),
         'schema.sql must define enforce_citizen_feedback_abuse_guards trigger function'
+    );
+
+    // Verify administrative audit trail immutability and redaction safeguards
+    assert.ok(
+        content.includes('FUNCTION public.sanitize_audit_payload('),
+        'schema.sql must define sanitize_audit_payload redaction helper'
+    );
+    assert.ok(
+        content.includes('FUNCTION public.log_administrative_mutation()'),
+        'schema.sql must define log_administrative_mutation trigger function'
+    );
+    assert.ok(
+        content.includes('FUNCTION public.prevent_audit_log_mutation()'),
+        'schema.sql must define prevent_audit_log_mutation immutability guard'
+    );
+    assert.ok(
+        content.includes('REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.audit_logs FROM PUBLIC, anon, authenticated;'),
+        'schema.sql must strictly revoke direct mutation privileges on audit_logs'
     );
 
     // Verify zero insecure admin policies
