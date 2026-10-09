@@ -4,6 +4,14 @@ import { offlineQueue } from '../../../lib/offlineQueue.js';
 const FEEDBACK_COOLDOWN_MS = 30000; // 30 seconds
 const LAST_SUBMIT_KEY = 'csp_last_feedback_submission';
 
+export class DatabaseRejectionError extends Error {
+    constructor(message, details = null) {
+        super(message);
+        this.name = 'DatabaseRejectionError';
+        this.details = details;
+    }
+}
+
 export const feedbackService = {
     async submitFeedback(feedbackData) {
         if (!feedbackData) throw new Error('Feedback data is required.');
@@ -54,9 +62,9 @@ export const feedbackService = {
             const res = await supabase.from('citizen_feedback').insert([payload]);
 
             if (res.error) {
-                console.warn('Citizen feedback insertion note, queuing offline:', res.error);
-                offlineQueue.enqueue({ type: 'feedback', data: payload });
-                return { offline: true, success: true, reference_id: refId };
+                // Database rejected submission (constraints, anti-abuse trigger, or RLS failure).
+                // Do not enqueue doomed payload or report false success.
+                throw new DatabaseRejectionError(res.error.message || 'Database rejected feedback submission', res.error);
             }
 
             if (typeof localStorage !== 'undefined') {
@@ -64,9 +72,26 @@ export const feedbackService = {
             }
             return { success: true, reference_id: refId };
         } catch (err) {
-            console.warn('Network error during feedback submit, queuing offline:', err);
-            offlineQueue.enqueue({ type: 'feedback', data: payload });
-            return { offline: true, success: true, reference_id: refId };
+            if (err instanceof DatabaseRejectionError || err.name === 'DatabaseRejectionError') {
+                throw err;
+            }
+
+            const isOfflineOrNetwork = (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+                err?.name === 'TypeError' ||
+                (err?.message && (
+                    err.message.toLowerCase().includes('failed to fetch') ||
+                    err.message.toLowerCase().includes('network') ||
+                    err.message.toLowerCase().includes('fetch failed')
+                ));
+
+            if (isOfflineOrNetwork) {
+                console.warn('Network error during feedback submit, queuing offline:', err);
+                offlineQueue.enqueue({ type: 'feedback', data: payload });
+                return { offline: true, success: true, reference_id: refId };
+            }
+
+            // Propagate genuine database or validation error to caller
+            throw err;
         }
     },
 
